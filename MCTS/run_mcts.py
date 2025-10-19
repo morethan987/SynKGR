@@ -98,23 +98,6 @@ class Runner:
         except Exception as e:
             rank_logger(self.logger, self.rank)(f"Background save failed: {e}")
 
-    # def save_checkpoint(self):
-    #     """保存检查点"""
-    #     policy_state = self.enhancer.rollout_policy.get_state()
-    #     data = {
-    #         "processed_entities": list(self.processed_entities),
-    #         "discovered_triplets": self.local_discovered_triplets,
-    #         "rollout_policy_state": policy_state,
-    #         "entity_count": len(self.processed_entities),
-    #         "triplet_count": len(self.local_discovered_triplets)
-    #     }
-    #     try:
-    #         with open(self.checkpoint_file, 'w', encoding='utf-8') as f:
-    #             json.dump(data, f, ensure_ascii=False, indent=2)
-    #         rank_logger(self.logger, self.rank)(f"Checkpoint saved: {len(self.processed_entities)} entities processed, {len(self.local_discovered_triplets)} triplets discovered.")
-    #     except Exception as e:
-    #         rank_logger(self.logger, self.rank)(f"Failed to save checkpoint: {e}")
-
     def save_checkpoint(self):
         """以异步方式保存检查点，避免阻塞主进程"""
         # 如果上一个保存线程还在运行，就跳过本次保存，防止I/O拥堵

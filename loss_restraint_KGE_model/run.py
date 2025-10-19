@@ -122,7 +122,7 @@ class Runner(object):
                         sr2observed[(obj, rel+self.p.num_rel)].add(sub)
 
                 if self.p.loss_delta > 0:
-                    cnt = 0
+                    aux_cnt = 0
                     for line in open(f'data/{self.p.dataset}/auxiliary_triples.txt'):
                         sub, rel, obj = map(
                             str.lower, line.strip().split('\t'))
@@ -131,7 +131,7 @@ class Runner(object):
                             self.data[split].append((sub, rel, obj))
                             sr2o[(sub, rel)].add(obj)
                             sr2o[(obj, rel+self.p.num_rel)].add(sub)
-                            cnt += 1
+                            aux_cnt += 1
                         except:
                             continue
                     self.logger.info(f'Number of auxiliary triples added: {cnt}')

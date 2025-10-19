@@ -1,13 +1,14 @@
 from collections import defaultdict
 import math
 import random
+import numpy as np
 from typing import TYPE_CHECKING, List, Tuple
 
 from setup_logger import setup_logger, rank_logger
 if TYPE_CHECKING:
     from node import SearchNode
 
-class ContextualBanditRolloutPolicy:
+class UCB1Policy:
     """
     一个MCTS的Rollout策略，它使用上下文多臂老虎机算法（基于UCB1）进行在线学习。
 
@@ -118,3 +119,208 @@ class ContextualBanditRolloutPolicy:
         self.counts.update(state.get("counts", {}))
         self.state_total_counts.update(state.get("state_total_counts", {}))
         rank_logger(self.logger, self.rank)("Successfully loaded rollout policy state from checkpoint.")
+
+class LinUCBRolloutPolicy:
+    """
+    基于LinUCB的MCTS Rollout策略
+
+    使用线性模型估计每个动作的期望奖励：
+    E[r|x,a] ≈ θ_a^T · x
+
+    相比UCB1的优势：
+    1. 连续特征空间，无需离散化
+    2. 状态间知识共享，泛化能力强
+    3. 自动学习特征重要性
+    """
+
+    def __init__(self, rank, feature_dim=6, alpha=1.0):
+        """
+        Args:
+            rank: 进程rank（用于日志）
+            feature_dim: 特征向量维度
+            alpha: 探索参数，控制置信区间宽度（类似UCB的c）
+                   - 较大的alpha：更激进的探索
+                   - 较小的alpha：更保守，更依赖已有数据
+                   - 推荐范围：0.5-2.0，默认1.0
+        """
+        self.logger = setup_logger(self.__class__.__name__)
+        self.rank = rank
+        self.feature_dim = feature_dim
+        self.alpha = alpha
+
+        # 为每个动作类维护独立的LinUCB模型
+        # A_a: 设计矩阵 (feature_dim x feature_dim)
+        # b_a: 奖励向量 (feature_dim,)
+        self.A = defaultdict(lambda: np.identity(feature_dim))
+        self.b = defaultdict(lambda: np.zeros(feature_dim))
+
+        # 统计信息
+        self.action_counts = defaultdict(int)
+        self.total_updates = 0
+
+        # 全局统计：用于特征归一化
+        self.global_stats = {
+            'total_rewards': defaultdict(float),
+            'total_counts': defaultdict(int)
+        }
+
+    def _get_feature_vector(self, node: 'SearchNode') -> np.ndarray:
+        """
+        提取状态特征向量
+
+        特征设计原则：
+        1. 使用对数/归一化避免数值不稳定
+        2. 包含多个维度的上下文信息
+        3. 保持计算高效
+        """
+        features = []
+
+        # 特征1: 候选实体数量（对数尺度，归一化到0-1）
+        num_candidates = len(node.unfiltered_entities)
+        log_candidates = math.log10(max(num_candidates, 1))
+        # 假设候选数范围 [1, 100000]，对数范围 [0, 5]
+        features.append(min(log_candidates / 5.0, 1.0))
+
+        # 特征2: 搜索深度（归一化）
+        depth = 0
+        temp_node = node
+        while temp_node.parent is not None:
+            depth += 1
+            temp_node = temp_node.parent
+        # 假设最大深度为10
+        features.append(min(depth / 10.0, 1.0))
+
+        # 特征3: 候选数相对于根节点的比例
+        root = node._get_root()
+        root_size = len(root.unfiltered_entities)
+        ratio = num_candidates / max(root_size, 1)
+        features.append(ratio)
+
+        # 特征4-6: 三种动作的全局平均奖励（提供先验知识）
+        for action_name in ['GraphNode', 'KGENode', 'LLMNode']:
+            avg_reward = self._get_global_avg_reward(action_name)
+            features.append(avg_reward)
+
+        # 特征7: 稀疏实体的度数（高度实体可能适合不同策略）
+        degree = len(node.data_loader.get_one_hop_neighbors(node.sparse_entity))
+        features.append(math.log10(degree + 1) / 2.0) # 假设最大度数为1e2
+
+        return np.array(features, dtype=np.float64)
+
+    def _get_global_avg_reward(self, action_name: str) -> float:
+        """获取某个动作的全局平均奖励"""
+        count = self.global_stats['total_counts'][action_name]
+        if count == 0:
+            return 0.5  # 中性先验
+        total = self.global_stats['total_rewards'][action_name]
+        return total / count
+
+    def get_action(self, node: 'SearchNode', potential_actions: list) -> type:
+        """
+        使用LinUCB算法选择动作
+
+        对每个动作a：
+        1. 计算预测奖励：θ_a^T · x
+        2. 计算置信区间：alpha * sqrt(x^T · A_a^{-1} · x)
+        3. 选择 UCB = 预测 + 置信区间 最大的动作
+        """
+        x = self._get_feature_vector(node)
+
+        best_action = None
+        max_ucb = -float('inf')
+
+        for action_class in potential_actions:
+            action_name = action_class.__name__
+
+            # 计算该动作的参数估计 θ_a = A_a^{-1} · b_a
+            A_inv = np.linalg.inv(self.A[action_name])
+            theta = A_inv @ self.b[action_name]
+
+            # 预测奖励（利用项）
+            predicted_reward = theta @ x
+
+            # 置信区间半径（探索项）
+            confidence_radius = self.alpha * np.sqrt(x @ A_inv @ x)
+
+            # UCB值
+            ucb_value = predicted_reward + confidence_radius
+
+            if ucb_value > max_ucb:
+                max_ucb = ucb_value
+                best_action = action_class
+
+        return best_action
+
+    def update(self, rollout_path: List[Tuple['SearchNode', type]], reward: float):
+        """
+        更新LinUCB模型参数
+
+        对路径中的每个(状态, 动作)对：
+        1. 提取特征向量x
+        2. 更新设计矩阵：A_a += x · x^T
+        3. 更新奖励向量：b_a += r · x
+        """
+        self.total_updates += 1
+
+        for state_node, action_class in rollout_path:
+            action_name = action_class.__name__
+            x = self._get_feature_vector(state_node)
+
+            # LinUCB更新规则
+            self.A[action_name] += np.outer(x, x)
+            self.b[action_name] += reward * x
+
+            # 统计信息
+            self.action_counts[action_name] += 1
+            self.global_stats['total_rewards'][action_name] += reward
+            self.global_stats['total_counts'][action_name] += 1
+
+        # 定期日志
+        if self.total_updates % 100 == 0:
+            rank_logger(self.logger, self.rank)(
+                f"LinUCB update #{self.total_updates}: "
+                f"reward={reward:.4f}, path_len={len(rollout_path)}, "
+                f"action_counts={dict(self.action_counts)}"
+            )
+
+    def get_state(self) -> dict:
+        """序列化策略状态"""
+        return {
+            'A': {k: v.tolist() for k, v in self.A.items()},
+            'b': {k: v.tolist() for k, v in self.b.items()},
+            'action_counts': dict(self.action_counts),
+            'total_updates': self.total_updates,
+            'global_stats': {
+                'total_rewards': dict(self.global_stats['total_rewards']),
+                'total_counts': dict(self.global_stats['total_counts'])
+            },
+            'feature_dim': self.feature_dim,
+            'alpha': self.alpha
+        }
+
+    def load_state(self, state: dict):
+        """从字典加载策略状态"""
+        # 恢复矩阵和向量
+        for action_name, matrix in state.get('A', {}).items():
+            self.A[action_name] = np.array(matrix)
+        for action_name, vector in state.get('b', {}).items():
+            self.b[action_name] = np.array(vector)
+
+        # 恢复统计信息
+        self.action_counts.update(state.get('action_counts', {}))
+        self.total_updates = state.get('total_updates', 0)
+
+        global_stats = state.get('global_stats', {})
+        self.global_stats['total_rewards'].update(
+            global_stats.get('total_rewards', {}))
+        self.global_stats['total_counts'].update(
+            global_stats.get('total_counts', {}))
+
+        # 恢复超参数
+        self.feature_dim = state.get('feature_dim', self.feature_dim)
+        self.alpha = state.get('alpha', self.alpha)
+
+        rank_logger(self.logger, self.rank)(
+            f"Loaded LinUCB policy: {self.total_updates} updates, "
+            f"alpha={self.alpha}"
+        )

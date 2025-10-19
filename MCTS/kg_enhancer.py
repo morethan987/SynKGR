@@ -4,7 +4,7 @@ from kg_data_loader import KGDataLoader
 from model_calls import OpenKEClient
 from mcts_tree import MCTS
 from node import SearchRootNode, Context
-from rollout_policy import ContextualBanditRolloutPolicy
+from rollout_policy import UCB1Policy, LinUCBRolloutPolicy
 from LLM_Discriminator.discriminator import TriplesDiscriminator
 from setup_logger import setup_logger, rank_logger
 
@@ -57,7 +57,12 @@ class KGEnhancer:
         self.exploration_weight = exploration_weight
 
         # 初始化策略类
-        self.rollout_policy = ContextualBanditRolloutPolicy(rank=self.rank)
+        # self.rollout_policy = UCB1Policy(rank=self.rank)
+        self.rollout_policy = LinUCBRolloutPolicy(
+            rank=self.rank,
+            feature_dim=7,     # 特征维度（已在代码中定义）
+            alpha=1.0          # 探索参数，建议从1.0开始
+        )
 
         # 初始化数据加载器
         self.logger.info("Loading knowledge graph data...")
