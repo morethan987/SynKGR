@@ -240,7 +240,7 @@ class KGENode(SearchNode):
         # 检查缓存
         if root._kge_rank_map is None:
             # 缓存未命中
-            rank_logger(self.logger, self.rank)("KGENode cache miss. Calculating scores for all root candidates.")
+            self.logger.debug("KGENode cache miss. Calculating scores for all root candidates.")
             all_candidates = root.unfiltered_entities
 
             sparse_entity_id = self.data_loader.entity2id.get(self.sparse_entity)
@@ -279,7 +279,7 @@ class KGENode(SearchNode):
         keep_count = max(1, int(len(current_ranked_subset) * top_p))
         candidate_entities = set(current_ranked_subset[:keep_count])
 
-        rank_logger(self.logger, self.rank)(
+        self.logger.debug(
             f"KGENode filtered {len(candidate_entities)} entities from {len(self.unfiltered_entities)} candidates using cache.")
         return candidate_entities
 
@@ -301,7 +301,7 @@ class GraphNode(SearchNode):
         # 检查根节点是否有缓存
         if root._graph_rank_map is None:
             # 缓存未命中
-            rank_logger(self.logger, self.rank)("GraphNode cache miss. Calculating scores and building rank map.")
+            self.logger.debug("GraphNode cache miss. Calculating scores and building rank map.")
 
             all_candidates = root.unfiltered_entities
             sparse_neighbors = set(self.data_loader.get_one_hop_neighbors(self.sparse_entity))
@@ -328,7 +328,7 @@ class GraphNode(SearchNode):
         keep_count = max(1, int(len(current_ranked_subset) * top_p))
         candidate_entities = set(current_ranked_subset[:keep_count])
 
-        rank_logger(self.logger, self.rank)(
+        self.logger.debug(
             f"GraphNode filtered {len(candidate_entities)} entities from {len(self.unfiltered_entities)} candidates using rank map.")
         return candidate_entities
 
@@ -433,7 +433,7 @@ class LLMNode(SearchNode):
 
         if root._llm_rank_map is None:
             # 缓存未命中
-            rank_logger(self.logger, self.rank)("LLMNode cache miss. Calculating scores for all root candidates.")
+            self.logger.debug("LLMNode cache miss. Calculating scores for all root candidates.")
             all_candidates_list = list(root.unfiltered_entities)
 
             feature_embeddings = self._get_target_embedding().reshape(-1, 1)
@@ -456,6 +456,6 @@ class LLMNode(SearchNode):
         num_top = max(1, int(len(current_ranked_subset) * top_p))
         candidate_entities = set(current_ranked_subset[:num_top])
 
-        rank_logger(self.logger, self.rank)(
+        self.logger.debug(
             f"LLMNode filtered {len(candidate_entities)} entities from {len(self.unfiltered_entities)} candidates using cache.")
         return candidate_entities

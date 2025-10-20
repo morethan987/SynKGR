@@ -115,4 +115,4 @@ if __name__ == "__main__":
     file5 = "data/CoDEx-S/test.txt"
     file6 = "data/CoDEx-S/valid.txt"
     file7 = "data/CoDEx-S/auxiliary_triples.txt"
-    kg_similarity(file1, file3)
+    kg_similarity(file5, file7)

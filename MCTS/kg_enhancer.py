@@ -60,8 +60,8 @@ class KGEnhancer:
         # self.rollout_policy = UCB1Policy(rank=self.rank)
         self.rollout_policy = LinUCBRolloutPolicy(
             rank=self.rank,
-            feature_dim=7,     # 特征维度（已在代码中定义）
-            alpha=1.0          # 探索参数，建议从1.0开始
+            alpha=1.5,        # 稍微激进一点的探索
+            lambda_reg=0.5    # 正则化参数
         )
 
         # 初始化数据加载器
