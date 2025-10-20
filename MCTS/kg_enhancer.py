@@ -177,6 +177,7 @@ class KGEnhancer:
 
         rank_logger(self.logger, self.rank)(f"Enhancement completed: found {len(discovered_triplets)} unique triplets, "
                          f"total budget used: {budget_used}")
+        rank_logger(self.logger, self.rank)(f"Policy diagnostics: {self.rollout_policy.get_diagnostics()}")
 
         return discovered_triplets
 
