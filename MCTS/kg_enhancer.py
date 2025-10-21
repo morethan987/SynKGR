@@ -4,7 +4,7 @@ from kg_data_loader import KGDataLoader
 from model_calls import OpenKEClient
 from mcts_tree import MCTS
 from node import SearchRootNode, Context
-from rollout_policy import UCB1Policy, LinUCBRolloutPolicy
+from rollout_policy import UCB1Policy, LinUCBRolloutPolicy, EnhancedUCB1Policy
 from LLM_Discriminator.discriminator import TriplesDiscriminator
 from setup_logger import setup_logger, rank_logger
 
@@ -57,12 +57,13 @@ class KGEnhancer:
         self.exploration_weight = exploration_weight
 
         # 初始化策略类
-        # self.rollout_policy = UCB1Policy(rank=self.rank)
-        self.rollout_policy = LinUCBRolloutPolicy(
-            rank=self.rank,
-            alpha=1.5,        # 稍微激进一点的探索
-            lambda_reg=0.5    # 正则化参数
-        )
+        self.rollout_policy = UCB1Policy(rank=self.rank)
+        # self.rollout_policy = EnhancedUCB1Policy(rank=self.rank, exploration_factor=3.0)
+        # self.rollout_policy = LinUCBRolloutPolicy(
+        #     rank=self.rank,
+        #     alpha=1.5,        # 稍微激进一点的探索
+        #     lambda_reg=0.5    # 正则化参数
+        # )
 
         # 初始化数据加载器
         self.logger.info("Loading knowledge graph data...")
@@ -162,8 +163,7 @@ class KGEnhancer:
                              f"budget used: {budget_used}/{self.budget_per_entity}")
 
             # 执行一次MCTS迭代
-            triplets_found, budget_increment = self.mcts.do_iteration(
-                root_node)
+            triplets_found, budget_increment = self.mcts.do_iteration(root_node)
 
             # 更新统计信息
             discovered_triplets.extend(triplets_found)
@@ -177,7 +177,6 @@ class KGEnhancer:
 
         rank_logger(self.logger, self.rank)(f"Enhancement completed: found {len(discovered_triplets)} unique triplets, "
                          f"total budget used: {budget_used}")
-        rank_logger(self.logger, self.rank)(f"Policy diagnostics: {self.rollout_policy.get_diagnostics()}")
 
         return discovered_triplets
 

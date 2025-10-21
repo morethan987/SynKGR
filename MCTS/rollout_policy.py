@@ -125,15 +125,16 @@ class EnhancedUCB1Policy:
     增强版UCB1 Rollout策略
 
     改进点：
-    1. 更细粒度的状态分桶（5个桶 → 10个桶）
+    1. 更细粒度的状态分桶
     2. 加入深度信息
     3. 加入稀疏实体度数信息
     4. 更稳定的Q值更新方式
     """
 
-    def __init__(self, rank):
+    def __init__(self, rank, exploration_factor=1.414):
         self.logger = setup_logger(self.__class__.__name__)
         self.rank = rank
+        self.exploration_factor = exploration_factor
 
         # 存储每个 (状态, 动作) 对的平均奖励
         self.q_values = defaultdict(lambda: defaultdict(float))
@@ -147,49 +148,47 @@ class EnhancedUCB1Policy:
     def _get_state_key(self, node: 'SearchNode') -> str:
         """
         将当前节点的状态转化为离散的键
-
-        改进：使用更细粒度的分桶和多维度信息
         """
         # 1. 候选实体数量分桶（更细粒度）
         num_candidates = len(node.unfiltered_entities)
 
         if num_candidates > 10000:
-            size_bucket = "huge"      # > 10000
+            size_bucket = "huge"
         elif num_candidates > 5000:
-            size_bucket = "xlarge"    # 5001-10000
+            size_bucket = "xlarge"
         elif num_candidates > 2000:
-            size_bucket = "large"     # 2001-5000
+            size_bucket = "large"
         elif num_candidates > 1000:
-            size_bucket = "medium+"   # 1001-2000
+            size_bucket = "medium+"
         elif num_candidates > 500:
-            size_bucket = "medium"    # 501-1000
-        elif num_candidates > 200:
-            size_bucket = "medium-"   # 201-500
+            size_bucket = "medium"
         elif num_candidates > 100:
-            size_bucket = "small+"    # 101-200
+            size_bucket = "small+"
         elif num_candidates > 50:
-            size_bucket = "small"     # 51-100
-        elif num_candidates > 20:
-            size_bucket = "tiny"      # 21-50
+            size_bucket = "small"
         else:
-            size_bucket = "minimal"   # <= 20
+            size_bucket = "minimal"
 
         # 2. 搜索深度分桶
         depth = self._get_depth(node)
         if depth == 0:
             depth_bucket = "root"
-        elif depth <= 2:
+        elif depth <= 3:
             depth_bucket = "shallow"
+        elif depth <= 5:
+            depth_bucket = "normal"
         else:
             depth_bucket = "deep"
 
         # 3. 稀疏实体度数分桶（可选，如果计算开销可接受）
         try:
             degree = len(node.data_loader.get_one_hop_neighbors(node.sparse_entity))
-            if degree > 100:
+            if degree > 30:
                 degree_bucket = "high_degree"
             elif degree > 20:
                 degree_bucket = "medium_degree"
+            elif degree > 10:
+                degree_bucket = "normal_degree"
             else:
                 degree_bucket = "low_degree"
         except:
@@ -229,8 +228,8 @@ class EnhancedUCB1Policy:
             # 计算UCB值
             average_reward = self.q_values[state_key][action_key]
 
-            exploration_bonus = math.sqrt(
-                2 * math.log(total_visits_at_state) / self.counts[state_key][action_key]
+            exploration_bonus = self.exploration_factor * math.sqrt(
+                math.log(total_visits_at_state) / self.counts[state_key][action_key]
             )
 
             ucb_score = average_reward + exploration_bonus
