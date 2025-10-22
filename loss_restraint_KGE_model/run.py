@@ -134,7 +134,7 @@ class Runner(object):
                             aux_cnt += 1
                         except:
                             continue
-                    self.logger.info(f'Number of auxiliary triples added: {cnt}')
+                    self.logger.info(f'Number of auxiliary triples added: {aux_cnt}')
             else:
                 for line in open(f'data/{self.p.dataset}/{split}.txt'):
                     sub, rel, obj = map(str.lower, line.strip().split('\t'))
@@ -201,8 +201,8 @@ class Runner(object):
             'train':    	get_data_loader(TrainDataset, 'train', 	    self.p.batch_size) if (self.p.loss_delta < 0) else get_data_loader(TrainDataset_addLoss, 'train', self.p.batch_size),
             'valid_head':   get_data_loader(TestDataset,  'valid_head', self.p.batch_size),
             'valid_tail':   get_data_loader(TestDataset,  'valid_tail', self.p.batch_size),
-            'test_head':   	get_data_loader(TestDataset,  'test_head',  self.p.batch_size),
-            'test_tail':   	get_data_loader(TestDataset,  'test_tail',  self.p.batch_size),
+            'test_head':   	get_data_loader(TestDataset,  'test_head',  self.p.batch_size, shuffle=False),
+            'test_tail':   	get_data_loader(TestDataset,  'test_tail',  self.p.batch_size, shuffle=False),
         }
 
         self.edge_index, self.edge_type = self.construct_adj()
@@ -347,12 +347,22 @@ class Runner(object):
         -------
         """
         state = torch.load(load_path)
-        state_dict = state['state_dict']
-        self.best_val = state['best_val']
-        self.best_val_mrr = self.best_val['mrr']
+        # 1. 获取保存的参数 (args) 并用它们更新当前的 self.p
+        saved_args = state['args']
+        vars(self.p).update(saved_args)
 
-        self.model.load_state_dict(state_dict)
+        # 2. 根据刚刚恢复的、正确的参数重新构建模型和优化器
+        # 这一步是必需的，因为在 __init__ 中可能已经用错误的参数构建了一个旧模型
+        self.model = self.add_model(self.p.model, self.p.score_func)
+        self.optimizer = self.add_optimizer(self.model.parameters())
+
+        # 3. 将保存的权重和优化器状态加载到新创建的实例中
+        self.model.load_state_dict(state['state_dict'])
         self.optimizer.load_state_dict(state['optimizer'])
+
+        # 4. 恢复最佳验证结果等元数据
+        self.best_val = state['best_val']
+        self.best_val_mrr = self.best_val.get('mrr', 0) # 使用 .get() 增加兼容性
 
     def evaluate(self, split, epoch):
         """
@@ -446,12 +456,9 @@ class Runner(object):
                         split.title(), mode.title(), step, self.p.name))
 
             for entity_id in self.entity_mrr_totals.keys():
-                self.entity_mrr_average[entity_id] = self.entity_mrr_totals[entity_id] / \
-                    self.entity_count[entity_id]
-            sorted_dict = dict(
-                sorted(self.entity_mrr_average.items(), key=lambda x: x[0]))
-            sorted_dict = {int(float(key)): value for key,
-                        value in sorted_dict.items()}
+                self.entity_mrr_average[entity_id] = self.entity_mrr_totals[entity_id] / self.entity_count[entity_id]
+            sorted_dict = dict(sorted(self.entity_mrr_average.items(), key=lambda x: x[0]))
+            sorted_dict = {int(float(key)): value for key, value in sorted_dict.items()}
 
         return results
 
@@ -522,51 +529,51 @@ class Runner(object):
             self.logger.info('Successfully Loaded previous model')
 
         kill_cnt = 0
-
+        epoch = -1
         clean_rate = 1  # init
 
-        for epoch in range(self.p.max_epochs):
-            train_loss = self.run_epoch(epoch, val_mrr, clean_rate)
-            val_results = self.evaluate('valid', epoch)
-            if epoch % 30 == 0:
-                test_results = self.evaluate('test', epoch)
-                self.logger.info('\nTest set results:')
-                self.logger.info(
-                    f'Epoch {epoch}: MRR: Tail : {test_results["left_mrr"]:.5}, Head : {test_results["right_mrr"]:.5}, Avg : {test_results["mrr"]:.5}')
-                self.logger.info(
-                    f'Epoch {epoch}: MR: Tail : {test_results["left_mr"]:.5}, Head : {test_results["right_mr"]:.5}, Avg : {test_results["mr"]:.5}')
-                self.logger.info(
-                    f'Epoch {epoch}: left_hits@1: Tail : {test_results["left_hits@1"]:.5}, Head : {test_results["right_hits@1"]:.5}, Avg : {test_results["hits@1"]:.5}')
-                self.logger.info(
-                    f'Epoch {epoch}: left_hits@3: Tail : {test_results["left_hits@3"]:.5}, Head : {test_results["right_hits@3"]:.5}, Avg : {test_results["hits@3"]:.5}')
-                self.logger.info(
-                    f'Epoch {epoch}: left_hits@10: Tail : {test_results["left_hits@10"]:.5}, Head : {test_results["right_hits@10"]:.5}, Avg : {test_results["hits@10"]:.5}\n')
+        # for epoch in range(self.p.max_epochs):
+        #     train_loss = self.run_epoch(epoch, val_mrr, clean_rate)
+        #     val_results = self.evaluate('valid', epoch)
+        #     if epoch % 30 == 0:
+        #         test_results = self.evaluate('test', epoch)
+        #         self.logger.info('\nTest set results:')
+        #         self.logger.info(
+        #             f'Epoch {epoch}: MRR: Tail : {test_results["left_mrr"]:.5}, Head : {test_results["right_mrr"]:.5}, Avg : {test_results["mrr"]:.5}')
+        #         self.logger.info(
+        #             f'Epoch {epoch}: MR: Tail : {test_results["left_mr"]:.5}, Head : {test_results["right_mr"]:.5}, Avg : {test_results["mr"]:.5}')
+        #         self.logger.info(
+        #             f'Epoch {epoch}: left_hits@1: Tail : {test_results["left_hits@1"]:.5}, Head : {test_results["right_hits@1"]:.5}, Avg : {test_results["hits@1"]:.5}')
+        #         self.logger.info(
+        #             f'Epoch {epoch}: left_hits@3: Tail : {test_results["left_hits@3"]:.5}, Head : {test_results["right_hits@3"]:.5}, Avg : {test_results["hits@3"]:.5}')
+        #         self.logger.info(
+        #             f'Epoch {epoch}: left_hits@10: Tail : {test_results["left_hits@10"]:.5}, Head : {test_results["right_hits@10"]:.5}, Avg : {test_results["hits@10"]:.5}\n')
 
-            if val_results['mrr'] > self.best_val_mrr:
-                self.best_val = val_results
-                self.best_val_mrr = val_results['mrr']
-                self.best_epoch = epoch
-                self.save_model(save_path)
-                kill_cnt = 0
-            else:
-                kill_cnt += 1
-                if kill_cnt % 10 == 0 and self.p.gamma > 5:
-                    self.p.gamma -= 5
-                    self.logger.info(
-                        'Gamma decay on saturation, updated value of gamma: {}'.format(self.p.gamma))
-                if kill_cnt > 25:
-                    self.logger.info("Early Stopping!!")
-                    break
+        #     if val_results['mrr'] > self.best_val_mrr:
+        #         self.best_val = val_results
+        #         self.best_val_mrr = val_results['mrr']
+        #         self.best_epoch = epoch
+        #         self.save_model(save_path)
+        #         kill_cnt = 0
+        #     else:
+        #         kill_cnt += 1
+        #         if kill_cnt % 10 == 0 and self.p.gamma > 5:
+        #             self.p.gamma -= 5
+        #             self.logger.info(
+        #                 'Gamma decay on saturation, updated value of gamma: {}'.format(self.p.gamma))
+        #         if kill_cnt > 25:
+        #             self.logger.info("Early Stopping!!")
+        #             break
 
-            self.logger.info(
-                f'[Epoch {epoch}]: Training Loss: {train_loss:.5}, Valid MRR: {self.best_val_mrr:.5}\n\n')
+        #     self.logger.info(
+        #         f'[Epoch {epoch}]: Training Loss: {train_loss:.5}, Valid MRR: {self.best_val_mrr:.5}\n\n')
 
-            if (epoch % 30 == 0) and (self.p.loss_delta > 0):
-                # update clean_rate
-                clean_rate -= self.p.loss_delta
+        #     if (epoch % 30 == 0) and (self.p.loss_delta > 0):
+        #         # update clean_rate
+        #         clean_rate -= self.p.loss_delta
 
-        self.logger.info('Loading best model, Evaluating on Test data')
-        self.load_model(save_path)
+        # self.logger.info('Loading best model, Evaluating on Test data')
+        # self.load_model(save_path)
         test_results = self.evaluate('test', epoch)
         self.logger.info('\nFinal Test set results:')
         self.logger.info(
