@@ -25,7 +25,7 @@ def cleanup_entity2name(folder: str):
             f.write(f"{entity}\t{name}\n")
 
 
-def kg_similarity(file1, file2):
+def kg_similarity(file1, file2, merged_file_path = None):
     """
     计算两个知识图谱（KG）文件之间的 Jaccard 相似度，并输出详细的统计数据。
 
@@ -71,6 +71,15 @@ def kg_similarity(file1, file2):
     intersection = triples1.intersection(triples2)
     union = triples1.union(triples2)
 
+    if merged_file_path:
+        try:
+            with open(merged_file_path, 'w', encoding='utf-8') as f:
+                for triple in union:
+                    f.write("\t".join(triple) + "\n")
+            print(f"合并的三元组已保存至: {merged_file_path}")
+        except Exception as e:
+            print(f"保存合并文件时发生错误: {e}")
+
     # 获取各自的数量和重合数量
     num_triples1 = len(triples1)
     num_triples2 = len(triples2)
@@ -111,8 +120,11 @@ if __name__ == "__main__":
     file2 = "data/FB15K-237N/valid.txt"
     file3 = "data/FB15K-237N/auxiliary_triples.txt"
     file4 = "data/FB15K-237N/auxiliary_triples_old.txt"
+    fb_merged_file = "data/FB15K-237N/merged_triples.txt"
 
     file5 = "data/CoDEx-S/test.txt"
     file6 = "data/CoDEx-S/valid.txt"
     file7 = "data/CoDEx-S/auxiliary_triples.txt"
+    file8 = "data/CoDEx-S/auxiliary_triples_old.txt"
+    codex_merged_file = "data/CoDEx-S/merged_auxiliary_triples.txt"
     kg_similarity(file5, file7)

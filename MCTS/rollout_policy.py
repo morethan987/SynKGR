@@ -169,18 +169,7 @@ class EnhancedUCB1Policy:
         else:
             size_bucket = "minimal"
 
-        # 2. 搜索深度分桶
-        depth = self._get_depth(node)
-        if depth == 0:
-            depth_bucket = "root"
-        elif depth <= 3:
-            depth_bucket = "shallow"
-        elif depth <= 5:
-            depth_bucket = "normal"
-        else:
-            depth_bucket = "deep"
-
-        # 3. 稀疏实体度数分桶（可选，如果计算开销可接受）
+        # 2. 稀疏实体度数分桶（可选，如果计算开销可接受）
         try:
             degree = len(node.data_loader.get_one_hop_neighbors(node.sparse_entity))
             if degree > 30:
@@ -195,7 +184,7 @@ class EnhancedUCB1Policy:
             degree_bucket = "unknown"
 
         # 组合所有维度
-        return f"size:{size_bucket}|depth:{depth_bucket}|deg:{degree_bucket}"
+        return f"size:{size_bucket}|deg:{degree_bucket}"
 
     def _get_depth(self, node: 'SearchNode') -> int:
         """计算节点深度"""
@@ -225,8 +214,9 @@ class EnhancedUCB1Policy:
             if self.counts[state_key][action_key] == 0:
                 return action_class
 
-            # 计算UCB值
-            average_reward = self.q_values[state_key][action_key]
+            # 设置为0,纯粹新颖性探索
+            # average_reward = self.q_values[state_key][action_key]
+            average_reward = 0
 
             exploration_bonus = self.exploration_factor * math.sqrt(
                 math.log(total_visits_at_state) / self.counts[state_key][action_key]

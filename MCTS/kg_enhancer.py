@@ -57,8 +57,8 @@ class KGEnhancer:
         self.exploration_weight = exploration_weight
 
         # 初始化策略类
-        self.rollout_policy = UCB1Policy(rank=self.rank)
-        # self.rollout_policy = EnhancedUCB1Policy(rank=self.rank, exploration_factor=3.0)
+        # self.rollout_policy = UCB1Policy(rank=self.rank)
+        self.rollout_policy = EnhancedUCB1Policy(rank=self.rank, exploration_factor=3.0)
         # self.rollout_policy = LinUCBRolloutPolicy(
         #     rank=self.rank,
         #     alpha=1.5,        # 稍微激进一点的探索
