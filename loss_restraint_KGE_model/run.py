@@ -29,8 +29,6 @@ class Runner(object):
         self.entity_mrr_totals = {}
         self.entity_count = {}
         self.entity_mrr_average = {}
-        # self.logger = get_logger(
-        #     self.p.name, self.p.log_dir, self.p.config_dir)
         self.logger = get_logger(self.p.name)
 
         self.logger.info(vars(self.p))
@@ -201,8 +199,8 @@ class Runner(object):
             'train':    	get_data_loader(TrainDataset, 'train', 	    self.p.batch_size) if (self.p.loss_delta < 0) else get_data_loader(TrainDataset_addLoss, 'train', self.p.batch_size),
             'valid_head':   get_data_loader(TestDataset,  'valid_head', self.p.batch_size),
             'valid_tail':   get_data_loader(TestDataset,  'valid_tail', self.p.batch_size),
-            'test_head':   	get_data_loader(TestDataset,  'test_head',  self.p.batch_size, shuffle=False),
-            'test_tail':   	get_data_loader(TestDataset,  'test_tail',  self.p.batch_size, shuffle=False),
+            'test_head':   	get_data_loader(TestDataset,  'test_head',  self.p.batch_size),
+            'test_tail':   	get_data_loader(TestDataset,  'test_tail',  self.p.batch_size),
         }
 
         self.edge_index, self.edge_type = self.construct_adj()
@@ -381,6 +379,10 @@ class Runner(object):
             results['hits@k']:      Probability of getting the correct preodiction in top-k ranks based on predicted score
 
         """
+        # 清空先前的数据
+        self.entity_mrr_totals = {}
+        self.entity_count = {}
+
         left_results = self.predict(split=split, mode='tail_batch')
         right_results = self.predict(split=split, mode='head_batch')
         results = get_combined_results(left_results, right_results)
@@ -416,11 +418,9 @@ class Runner(object):
                 pred = self.model.forward(sub, rel)
                 b_range = torch.arange(pred.size()[0], device=self.device)
                 target_pred = pred[b_range, obj]
-                pred = torch.where(
-                    label.byte(), -torch.ones_like(pred) * 10000000, pred)
+                pred = torch.where(label.byte(), -torch.ones_like(pred) * 10000000, pred)
                 pred[b_range, obj] = target_pred
-                ranks = 1 + torch.argsort(torch.argsort(pred, dim=1,
-                                        descending=True), dim=1, descending=False)[b_range, obj]
+                ranks = 1 + torch.argsort(torch.argsort(pred, dim=1, descending=True), dim=1, descending=False)[b_range, obj]
                 ranks = ranks.float()
 
                 ranks_ = torch.unsqueeze(ranks, dim=1)
@@ -441,12 +441,9 @@ class Runner(object):
                         self.entity_mrr_totals[entity_id] = rank
                         self.entity_count[entity_id] = 1
 
-                results['count'] = torch.numel(
-                    ranks) + results.get('count', 0.0)
-                results['mr'] = torch.sum(
-                    ranks).item() + results.get('mr',    0.0)
-                results['mrr'] = torch.sum(
-                    1.0/ranks).item() + results.get('mrr',   0.0)
+                results['count'] = torch.numel(ranks) + results.get('count', 0.0)
+                results['mr'] = torch.sum(ranks).item() + results.get('mr', 0.0)
+                results['mrr'] = torch.sum(1.0/ranks).item() + results.get('mrr', 0.0)
                 for k in range(10):
                     results['hits@{}'.format(k+1)] = torch.numel(
                         ranks[ranks <= (k+1)]) + results.get('hits@{}'.format(k+1), 0.0)
@@ -455,12 +452,37 @@ class Runner(object):
                     self.logger.info('[{}, {} Step {}]\t{}'.format(
                         split.title(), mode.title(), step, self.p.name))
 
-            for entity_id in self.entity_mrr_totals.keys():
-                self.entity_mrr_average[entity_id] = self.entity_mrr_totals[entity_id] / self.entity_count[entity_id]
-            sorted_dict = dict(sorted(self.entity_mrr_average.items(), key=lambda x: x[0]))
-            sorted_dict = {int(float(key)): value for key, value in sorted_dict.items()}
-
         return results
+
+    def analyze_entity_mrr(self):
+        """
+        Analyzes and returns the per-entity MRR based on the stats
+        collected from the last `predict` call.
+
+        Returns
+        -------
+        sorted_entity_mrr: A dictionary with entity IDs as keys and their
+                           average MRR as values, sorted by entity ID.
+        """
+        # 检查 predict 是否已经被调用并生成了统计数据
+        if not hasattr(self, 'entity_mrr_totals') or not self.entity_mrr_totals:
+            print("Warning: Please run predict() first to collect entity statistics.")
+            return {}
+
+        entity_mrr_average = {}
+        for entity_id in self.entity_mrr_totals.keys():
+            entity_mrr_average[entity_id] = self.entity_mrr_totals[entity_id] / self.entity_count[entity_id]
+
+        # 排序
+        sorted_items = sorted(entity_mrr_average.items(), key=lambda x: x[0])
+
+        # 清理键的类型并创建最终字典
+        sorted_entity_mrr = {int(float(key)): value for key, value in sorted_items}
+
+        # (可选) 也可以将结果存回 self，如果希望在对象内部保留它
+        # self.entity_mrr_average = sorted_entity_mrr
+
+        return sorted_entity_mrr
 
     def run_epoch(self, epoch, val_mrr=0, clean_rate=1):
         """
@@ -532,48 +554,48 @@ class Runner(object):
         epoch = -1
         clean_rate = 1  # init
 
-        # for epoch in range(self.p.max_epochs):
-        #     train_loss = self.run_epoch(epoch, val_mrr, clean_rate)
-        #     val_results = self.evaluate('valid', epoch)
-        #     if epoch % 30 == 0:
-        #         test_results = self.evaluate('test', epoch)
-        #         self.logger.info('\nTest set results:')
-        #         self.logger.info(
-        #             f'Epoch {epoch}: MRR: Tail : {test_results["left_mrr"]:.5}, Head : {test_results["right_mrr"]:.5}, Avg : {test_results["mrr"]:.5}')
-        #         self.logger.info(
-        #             f'Epoch {epoch}: MR: Tail : {test_results["left_mr"]:.5}, Head : {test_results["right_mr"]:.5}, Avg : {test_results["mr"]:.5}')
-        #         self.logger.info(
-        #             f'Epoch {epoch}: left_hits@1: Tail : {test_results["left_hits@1"]:.5}, Head : {test_results["right_hits@1"]:.5}, Avg : {test_results["hits@1"]:.5}')
-        #         self.logger.info(
-        #             f'Epoch {epoch}: left_hits@3: Tail : {test_results["left_hits@3"]:.5}, Head : {test_results["right_hits@3"]:.5}, Avg : {test_results["hits@3"]:.5}')
-        #         self.logger.info(
-        #             f'Epoch {epoch}: left_hits@10: Tail : {test_results["left_hits@10"]:.5}, Head : {test_results["right_hits@10"]:.5}, Avg : {test_results["hits@10"]:.5}\n')
+        for epoch in range(self.p.max_epochs):
+            train_loss = self.run_epoch(epoch, val_mrr, clean_rate)
+            val_results = self.evaluate('valid', epoch)
+            if epoch % 30 == 0:
+                test_results = self.evaluate('test', epoch)
+                self.logger.info('\nTest set results:')
+                self.logger.info(
+                    f'Epoch {epoch}: MRR: Tail : {test_results["left_mrr"]:.5}, Head : {test_results["right_mrr"]:.5}, Avg : {test_results["mrr"]:.5}')
+                self.logger.info(
+                    f'Epoch {epoch}: MR: Tail : {test_results["left_mr"]:.5}, Head : {test_results["right_mr"]:.5}, Avg : {test_results["mr"]:.5}')
+                self.logger.info(
+                    f'Epoch {epoch}: left_hits@1: Tail : {test_results["left_hits@1"]:.5}, Head : {test_results["right_hits@1"]:.5}, Avg : {test_results["hits@1"]:.5}')
+                self.logger.info(
+                    f'Epoch {epoch}: left_hits@3: Tail : {test_results["left_hits@3"]:.5}, Head : {test_results["right_hits@3"]:.5}, Avg : {test_results["hits@3"]:.5}')
+                self.logger.info(
+                    f'Epoch {epoch}: left_hits@10: Tail : {test_results["left_hits@10"]:.5}, Head : {test_results["right_hits@10"]:.5}, Avg : {test_results["hits@10"]:.5}\n')
 
-        #     if val_results['mrr'] > self.best_val_mrr:
-        #         self.best_val = val_results
-        #         self.best_val_mrr = val_results['mrr']
-        #         self.best_epoch = epoch
-        #         self.save_model(save_path)
-        #         kill_cnt = 0
-        #     else:
-        #         kill_cnt += 1
-        #         if kill_cnt % 10 == 0 and self.p.gamma > 5:
-        #             self.p.gamma -= 5
-        #             self.logger.info(
-        #                 'Gamma decay on saturation, updated value of gamma: {}'.format(self.p.gamma))
-        #         if kill_cnt > 25:
-        #             self.logger.info("Early Stopping!!")
-        #             break
+            if val_results['mrr'] > self.best_val_mrr:
+                self.best_val = val_results
+                self.best_val_mrr = val_results['mrr']
+                self.best_epoch = epoch
+                self.save_model(save_path)
+                kill_cnt = 0
+            else:
+                kill_cnt += 1
+                if kill_cnt % 10 == 0 and self.p.gamma > 5:
+                    self.p.gamma -= 5
+                    self.logger.info(
+                        'Gamma decay on saturation, updated value of gamma: {}'.format(self.p.gamma))
+                if kill_cnt > 25:
+                    self.logger.info("Early Stopping!!")
+                    break
 
-        #     self.logger.info(
-        #         f'[Epoch {epoch}]: Training Loss: {train_loss:.5}, Valid MRR: {self.best_val_mrr:.5}\n\n')
+            self.logger.info(
+                f'[Epoch {epoch}]: Training Loss: {train_loss:.5}, Valid MRR: {self.best_val_mrr:.5}\n\n')
 
-        #     if (epoch % 30 == 0) and (self.p.loss_delta > 0):
-        #         # update clean_rate
-        #         clean_rate -= self.p.loss_delta
+            if (epoch % 30 == 0) and (self.p.loss_delta > 0):
+                # update clean_rate
+                clean_rate -= self.p.loss_delta
 
-        # self.logger.info('Loading best model, Evaluating on Test data')
-        # self.load_model(save_path)
+        self.logger.info('Loading best model, Evaluating on Test data')
+        self.load_model(save_path)
         test_results = self.evaluate('test', epoch)
         self.logger.info('\nFinal Test set results:')
         self.logger.info(
@@ -587,11 +609,42 @@ class Runner(object):
         self.logger.info(
             f'Final results: left_hits@10: Tail : {test_results["left_hits@10"]:.5}, Head : {test_results["right_hits@10"]:.5}, Avg : {test_results["hits@10"]:.5}')
 
+    def test_relation_type(self):
+        """
+        Function to get performance on various relation types
+        """
+        self.best_val_mrr, self.best_val, self.best_epoch, val_mrr = 0., {}, 0, 0.
+        save_path = os.path.join(self.p.save_dir, self.p.name + '.pth')
+
+        if self.p.restore:
+            self.load_model(save_path)
+            self.logger.info('Successfully Loaded previous model')
+
+        test_results = self.evaluate('test', -1)
+        self.logger.info('\nFinal Test set results:')
+        self.logger.info(
+            f'Final results: MRR: Tail : {test_results["left_mrr"]:.5}, Head : {test_results["right_mrr"]:.5}, Avg : {test_results["mrr"]:.5}')
+        self.logger.info(
+            f'Final results: MR: Tail : {test_results["left_mr"]:.5}, Head : {test_results["right_mr"]:.5}, Avg : {test_results["mr"]:.5}')
+        self.logger.info(
+            f'Final results: left_hits@1: Tail : {test_results["left_hits@1"]:.5}, Head : {test_results["right_hits@1"]:.5}, Avg : {test_results["hits@1"]:.5}')
+        self.logger.info(
+            f'Final results: left_hits@3: Tail : {test_results["left_hits@3"]:.5}, Head : {test_results["right_hits@3"]:.5}, Avg : {test_results["hits@3"]:.5}')
+        self.logger.info(
+            f'Final results: left_hits@10: Tail : {test_results["left_hits@10"]:.5}, Head : {test_results["right_hits@10"]:.5}, Avg : {test_results["hits@10"]:.5}')
+
+    def test_entity_degree(self):
+        pass
+
+    def case_study(self):
+        pass
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
     description='Parser For Arguments', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--name', dest='name', default='testrun', help='Set run name for saving/restoring models')
+    parser.add_argument('--mode', dest='mode', default=None, choices=['train', 'test_relation_type', 'test_entity_degree', 'case_study'], help='Set the mode for runner')
     parser.add_argument('--data', dest='dataset', default='FB15k-237', help='Dataset to use, default: FB15k-237')
     parser.add_argument('--model', dest='model', default='compgcn', help='Model Name')
     parser.add_argument('--score_func', dest='score_func', default='conve', help='Score Function for Link prediction')
@@ -645,4 +698,13 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
 
     runner = Runner(args)
-    runner.fit()
+    if args.mode == 'train':
+        runner.fit()
+    elif args.mode == 'test_relation_type':
+        runner.test_relation_type()
+    elif args.mode == 'test_entity_degree':
+        runner.test_entity_degree()
+    elif args.mode == 'case_study':
+        runner.case_study()
+    else:
+        print("You should set a mode for runner")

@@ -5,6 +5,8 @@
 # 路径设置
 # DATA_SET='FB15K-237N'
 DATA_SET='CoDEx-S'
+# NAME='fb15k_train'
+NAME='codex_train'
 # OUTPUT_DIR='loss_restraint_KGE_model/output/fb15k-237n'
 OUTPUT_DIR='loss_restraint_KGE_model/output/codex-s'
 LOG_DIR='loss_restraint_KGE_model/logs'
@@ -31,8 +33,8 @@ if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" && "$CONFIRM" != "" ]]; then
 fi
 
 nohup python loss_restraint_KGE_model/run.py \
-    --restore \
-    --name test_run_20251010_161337 \
+    --name $NAME \
+    --mode train \
     --time_string $TIME_STAMP \
     --data $DATA_SET \
     --save $OUTPUT_DIR \
