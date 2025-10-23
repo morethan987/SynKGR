@@ -4,7 +4,7 @@
 
 # 路径设置
 MODEL_PATH='wxjiao/alpaca-7b'
-# DATA_PATH='data/FB15K-237N'
+# DATA_PATH='data/FB15k-237N'
 DATA_PATH='data/CoDEx-S'
 # OUTPUT_DIR='MCTS/output/fb15k-237n'
 OUTPUT_DIR='MCTS/output/codex-s'
@@ -13,7 +13,7 @@ PROCESSED_DATA="$OUTPUT_DIR/processed_data.pth"
 LORA_PATH="LLM_Discriminator/output/alpaca7b_CoDeX-S"
 EMBEDDING_PATH="$LORA_PATH/embeddings.pth"
 ENTITY2EMBEDDING_PATH="$DATA_PATH/entity2embedding.pth"
-# KGE_MODEL='LLM_Discriminator/data/FB15K-237N-rotate.pth'
+# KGE_MODEL='LLM_Discriminator/data/FB15k-237N-rotate.pth'
 KGE_MODEL='LLM_Discriminator/data/CoDeX-S-rotate.pth'
 DISCRIMINATOR_FOLDER="$PWD/LLM_Discriminator"
 LOG_DIR='MCTS/logs'

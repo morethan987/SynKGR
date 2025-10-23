@@ -4,9 +4,9 @@
 
 # 路径设置
 MODEL_PATH='/home/ma-user/work/model/Alpaca-7B'
-DATA_PATH='data/FB15K-237N-test.json'
+DATA_PATH='data/FB15k-237N-test.json'
 OUTPUT_DIR='output/alpaka_7b_fb'
-KGE_MODEL='data/FB15K-237N-rotate.pth'
+KGE_MODEL='data/FB15k-237N-rotate.pth'
 LOG_DIR='logs'
 TIME_STAMP=$(date +%Y%m%d_%H%M%S)
 

@@ -4,7 +4,7 @@
 
 # 路径设置
 MODEL_PATH='wxjiao/alpaca-7b'
-# DATA_PATH='LLM_Discriminator/data/FB15K-237N-test.json'
+# DATA_PATH='LLM_Discriminator/data/FB15k-237N-test.json'
 DATA_PATH='LLM_Discriminator/data/CoDeX-S-test.json'
 # LORA_PATH="LLM_Discriminator/output/alpaca7b_fb"
 LORA_PATH="LLM_Discriminator/output/alpaca7b_CoDeX-S"

@@ -3,7 +3,7 @@
 # 使用方法: cdko && ackopa && bash scripts/test_relation_type.sh
 
 # 路径设置
-DATA_SET='FB15K-237N'
+DATA_SET='FB15k-237N'
 # DATA_SET='CoDEx-S'
 OUTPUT_DIR='loss_restraint_KGE_model/output/fb15k-237n'
 # OUTPUT_DIR='loss_restraint_KGE_model/output/codex-s'

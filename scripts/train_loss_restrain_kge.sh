@@ -3,7 +3,7 @@
 # 使用方法: cdko && ackopa && bash scripts/train_loss_restrain_kge.sh
 
 # 路径设置
-# DATA_SET='FB15K-237N'
+# DATA_SET='FB15k-237N'
 DATA_SET='CoDEx-S'
 # NAME='fb15k_train'
 NAME='codex_train'

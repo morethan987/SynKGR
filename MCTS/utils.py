@@ -127,5 +127,5 @@ def cleanup_distributed():
 
 
 if __name__ == "__main__":
-    dataset = "data/FB15K-237N"
+    dataset = "data/FB15k-237N"
     sparse_entities = get_sparse_entities(dataset)

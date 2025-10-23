@@ -110,17 +110,17 @@ def kg_similarity(file1, file2, merged_file_path = None):
 if __name__ == "__main__":
     # acko && cdko && python data/data_preview.py
 
-    # file_path = "data/FB15K-237N/entity2embedding.pth"
+    # file_path = "data/FB15k-237N/entity2embedding.pth"
     # check_enity2embedding(file_path)
 
-    # folder = "data/FB15K-237N"
+    # folder = "data/FB15k-237N"
     # cleanup_entity2name(folder)
 
-    file1 = "data/FB15K-237N/test.txt"
-    file2 = "data/FB15K-237N/valid.txt"
-    file3 = "data/FB15K-237N/auxiliary_triples.txt"
-    file4 = "data/FB15K-237N/auxiliary_triples_old.txt"
-    fb_merged_file = "data/FB15K-237N/merged_triples.txt"
+    file1 = "data/FB15k-237N/test.txt"
+    file2 = "data/FB15k-237N/valid.txt"
+    file3 = "data/FB15k-237N/auxiliary_triples.txt"
+    file4 = "data/FB15k-237N/auxiliary_triples_old.txt"
+    fb_merged_file = "data/FB15k-237N/merged_triples.txt"
 
     file5 = "data/CoDEx-S/test.txt"
     file6 = "data/CoDEx-S/valid.txt"

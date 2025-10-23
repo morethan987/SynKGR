@@ -6,7 +6,7 @@
 export NPU_VISIBLE_DEVICES=0
 
 # --- 路径配置 ---
-DATA_PATH='data/FB15K-237N'
+DATA_PATH='data/FB15k-237N'
 OUTPUT_DIR='LLM_Discriminator/train_kge_output'
 LOG_DIR='LLM_Discriminator/logs'
 TIME_STAMP=$(date +%Y%m%d_%H%M%S)
