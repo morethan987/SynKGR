@@ -185,25 +185,25 @@ class Runner(object):
 
         self.triples = dict(self.triples)
 
-        def get_data_loader(dataset_class, split, batch_size, shuffle=True):
-            num_workers = max(0, self.p.num_workers)
-            return DataLoader(
-                dataset_class(self.triples[split], self.p),
-                batch_size=batch_size,
-                shuffle=shuffle,
-                num_workers=num_workers,
-                collate_fn=dataset_class.collate_fn
-            )
-
         self.data_iter = {
-            'train':    	get_data_loader(TrainDataset, 'train', 	    self.p.batch_size) if (self.p.loss_delta < 0) else get_data_loader(TrainDataset_addLoss, 'train', self.p.batch_size),
-            'valid_head':   get_data_loader(TestDataset,  'valid_head', self.p.batch_size),
-            'valid_tail':   get_data_loader(TestDataset,  'valid_tail', self.p.batch_size),
-            'test_head':   	get_data_loader(TestDataset,  'test_head',  self.p.batch_size),
-            'test_tail':   	get_data_loader(TestDataset,  'test_tail',  self.p.batch_size),
+            'train':    	self.get_data_loader(TrainDataset, 'train', 	    self.p.batch_size) if (self.p.loss_delta < 0) else self.get_data_loader(TrainDataset_addLoss, 'train', self.p.batch_size),
+            'valid_head':   self.get_data_loader(TestDataset,  'valid_head', self.p.batch_size),
+            'valid_tail':   self.get_data_loader(TestDataset,  'valid_tail', self.p.batch_size),
+            'test_head':   	self.get_data_loader(TestDataset,  'test_head',  self.p.batch_size),
+            'test_tail':   	self.get_data_loader(TestDataset,  'test_tail',  self.p.batch_size),
         }
 
         self.edge_index, self.edge_type = self.construct_adj()
+
+    def get_data_loader(self, dataset_class, split, batch_size, shuffle=True):
+        num_workers = max(0, self.p.num_workers)
+        return DataLoader(
+            dataset_class(self.triples[split], self.p),
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            collate_fn=dataset_class.collate_fn
+        )
 
     def construct_adj(self):
         """
@@ -386,8 +386,8 @@ class Runner(object):
         left_results = self.predict(split=split, mode='tail_batch')
         right_results = self.predict(split=split, mode='head_batch')
         results = get_combined_results(left_results, right_results)
-        self.logger.info(
-            f'[Epoch {epoch} {split}]: MRR: Tail : {results["left_mrr"]:.5}, Head : {results["right_mrr"]:.5}, Avg : {results["mrr"]:.5}')
+        # self.logger.info(
+        #     f'[Epoch {epoch} {split}]: MRR: Tail : {results["left_mrr"]:.5}, Head : {results["right_mrr"]:.5}, Avg : {results["mrr"]:.5}')
         return results
 
     def predict(self, split='valid', mode='tail_batch'):
@@ -448,7 +448,7 @@ class Runner(object):
                     results['hits@{}'.format(k+1)] = torch.numel(
                         ranks[ranks <= (k+1)]) + results.get('hits@{}'.format(k+1), 0.0)
 
-                if step % 100 == 0:
+                if step+1 % 100 == 0:
                     self.logger.info('[{}, {} Step {}]\t{}'.format(
                         split.title(), mode.title(), step, self.p.name))
 
@@ -609,10 +609,67 @@ class Runner(object):
         self.logger.info(
             f'Final results: left_hits@10: Tail : {test_results["left_hits@10"]:.5}, Head : {test_results["right_hits@10"]:.5}, Avg : {test_results["hits@10"]:.5}')
 
-    def test_relation_type(self):
+    def load_relation_type_data(self, relation_type):
         """
-        Function to get performance on various relation types
+        读取特定关系类型（如 '1-1'）的三元组文件，并将其格式化存储到 self.triples 中。
+        文件中的三元组(h, r, t)是字符串编码,制表符分割
+
+        Parameters
+        ----------
+        relation_type:  '1-1', '1-n', 'n-1', 'n-n'
         """
+
+        # 构造文件名
+        filename = f'data/{self.p.dataset}/{relation_type}.txt'
+
+        self.logger.info(f'Loading relation type data from: {filename}')
+
+        triples_list = []
+        try:
+            with open(filename, 'r') as f:
+                for line in f:
+                    # 使用 int() 确保读取到的是整数
+                    try:
+                        sub, rel, obj = line.strip().split('\t')
+                        triples_list.append((self.ent2id[sub], self.rel2id[rel], self.ent2id[obj]))
+                    except ValueError:
+                        self.logger.warning(f"Skipping line with non-integer IDs in {filename}: {line.strip()}")
+                        continue
+        except FileNotFoundError:
+            self.logger.error(f'Relation type file not found: {filename}')
+            return
+
+        split_prefix = 'test_' + relation_type # 使用 test_ 作为前缀
+        tail_key = f'{split_prefix}_tail'
+        head_key = f'{split_prefix}_head'
+
+        if tail_key not in self.triples:
+            self.triples[tail_key] = []
+        if head_key not in self.triples:
+            self.triples[head_key] = []
+
+        # 格式化数据并存入 self.triples
+        for sub, rel, obj in triples_list:
+            rel_inv = rel + self.p.num_rel
+
+            # tail prediction: (sub, rel, ?) -> obj
+            # label 仍然使用 self.sr2o_all 来获取所有正确的答案
+            if (sub, rel) in self.sr2o_all:
+                self.triples[f'{split_prefix}_tail'].append(
+                    {'triple': (sub, rel, obj), 'label': self.sr2o_all[(sub, rel)]})
+            else:
+                self.logger.warning(f"Triple ({sub}, {rel}, {obj}) not found in sr2o_all for tail prediction. Skipping.")
+
+            # head prediction: (?, rel_inv, obj) -> sub
+            if (obj, rel_inv) in self.sr2o_all:
+                self.triples[f'{split_prefix}_head'].append(
+                    {'triple': (obj, rel_inv, sub), 'label': self.sr2o_all[(obj, rel_inv)]})
+            else:
+                self.logger.warning(f"Triple ({obj}, {rel_inv}, {sub}) not found in sr2o_all for head prediction. Skipping.")
+
+        self.logger.info(f'Loaded {len(triples_list)} base triples and generated {len(self.triples.get(f"{split_prefix}_tail", []))} tail evaluation triples for {relation_type}')
+
+    def test_overall(self):
         self.best_val_mrr, self.best_val, self.best_epoch, val_mrr = 0., {}, 0, 0.
         save_path = os.path.join(self.p.save_dir, self.p.name + '.pth')
 
@@ -633,6 +690,59 @@ class Runner(object):
         self.logger.info(
             f'Final results: left_hits@10: Tail : {test_results["left_hits@10"]:.5}, Head : {test_results["right_hits@10"]:.5}, Avg : {test_results["hits@10"]:.5}')
 
+    def test_relation_type(self):
+        """
+        Function to get performance on various relation types
+        """
+        # load data
+        relation_types = ['1-1', '1-n', 'n-1', 'n-n']
+
+        # --- 加载特定关系类型的数据集 ---
+        for rel_type in relation_types:
+            self.load_relation_type_data(rel_type)
+
+        # --- 构造 Data Loader ---
+        for rel_type in relation_types:
+            split_prefix = 'test_' + rel_type
+            tail_key = f'{split_prefix}_tail'
+            head_key = f'{split_prefix}_head'
+
+            # 检查是否有数据被加载
+            if tail_key in self.triples and self.triples[tail_key]:
+                self.data_iter[tail_key] = self.get_data_loader(
+                    TestDataset, tail_key, self.p.batch_size, shuffle=False)
+
+            if head_key in self.triples and self.triples[head_key]:
+                self.data_iter[head_key] = self.get_data_loader(
+                    TestDataset, head_key, self.p.batch_size, shuffle=False)
+
+        self.best_val_mrr, self.best_val, self.best_epoch, val_mrr = 0., {}, 0, 0.
+        save_path = os.path.join(self.p.save_dir, self.p.name + '.pth')
+
+        if self.p.restore:
+            self.load_model(save_path)
+            self.logger.info('Successfully Loaded previous model')
+
+        # --- 评估特定关系类型 ---
+        self.logger.info('\nResults on Relation Types:')
+        for rel_type in relation_types:
+            split_prefix = 'test_' + rel_type
+            tail_key = f'{split_prefix}_tail'
+            head_key = f'{split_prefix}_head'
+
+            # 如果没有数据加载器，跳过
+            if tail_key not in self.data_iter and head_key not in self.data_iter:
+                self.logger.info(f'[{rel_type}]: No data loaded or data loader created. Skipping.')
+                continue
+
+            results = self.evaluate(split_prefix, -1)
+            self.logger.info(
+                f'[{rel_type}]:\n MRR: Tail: {results["left_mrr"]:.5}, Head: {results["right_mrr"]:.5}, Avg: {results["mrr"]:.5}\n'
+                f'Hits@1: Tail: {results["left_hits@1"]:.5}, Head: {results["right_hits@1"]:.5}, Avg: {results["hits@1"]:.5}, \n'
+                f'Hits@3: Tail: {results["left_hits@3"]:.5}, Head: {results["right_hits@3"]:.5}, Avg: {results["hits@3"]:.5}, \n'
+                f'Hits@10: Tail: {results["left_hits@10"]:.5}, Head: {results["right_hits@10"]:.5}, Avg: {results["hits@10"]:.5}, \n'
+            )
+
     def test_entity_degree(self):
         pass
 
@@ -644,7 +754,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
     description='Parser For Arguments', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--name', dest='name', default='testrun', help='Set run name for saving/restoring models')
-    parser.add_argument('--mode', dest='mode', default=None, choices=['train', 'test_relation_type', 'test_entity_degree', 'case_study'], help='Set the mode for runner')
+    parser.add_argument('--mode', dest='mode', default=None, choices=['train', 'overall', 'test_relation_type', 'test_entity_degree', 'case_study'], help='Set the mode for runner')
     parser.add_argument('--data', dest='dataset', default='FB15k-237', help='Dataset to use, default: FB15k-237')
     parser.add_argument('--model', dest='model', default='compgcn', help='Model Name')
     parser.add_argument('--score_func', dest='score_func', default='conve', help='Score Function for Link prediction')
@@ -700,6 +810,8 @@ if __name__ == '__main__':
     runner = Runner(args)
     if args.mode == 'train':
         runner.fit()
+    elif args.mode == 'overall':
+        runner.test_overall()
     elif args.mode == 'test_relation_type':
         runner.test_relation_type()
     elif args.mode == 'test_entity_degree':

@@ -1,154 +1,117 @@
-lef = {}
-rig = {}
-rellef = {}
-relrig = {}
+# -*- coding: utf-8 -*-
+# 关系类型分类脚本
+# 输入: train.txt, valid.txt, test.txt
+# 输出: type_constrain.txt, 1-1.txt, 1-n.txt, n-1.txt, n-n.txt, test_all.txt
+# 使用:
+# cdko && acko && python data/n-n.py --data FB15k-237N
+# cdko && acko && python data/n-n.py --data CoDEx-S
 
-triple = open("train2id.txt", "r")
-valid = open("valid2id.txt", "r")
-test = open("test2id.txt", "r")
+import argparse
 
-tot = (int)(triple.readline())
-for i in range(tot):
-	content = triple.readline()
-	h,t,r = content.strip().split()
-	if not (h,r) in lef:
-		lef[(h,r)] = []
-	if not (r,t) in rig:
-		rig[(r,t)] = []
-	lef[(h,r)].append(t)
-	rig[(r,t)].append(h)
-	if not r in rellef:
-		rellef[r] = {}
-	if not r in relrig:
-		relrig[r] = {}
-	rellef[r][h] = 1
-	relrig[r][t] = 1
+def read_triples(file_path):
+    """读取三元组文件，返回列表[(h, t, r), ...]"""
+    triples = []
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) != 3:
+                print(f"warning: split {line} get wrong parts count")
+                continue
+            h, r, t = parts
+            triples.append((h, t, r))
+    return triples
 
-tot = (int)(valid.readline())
-for i in range(tot):
-	content = valid.readline()
-	h,t,r = content.strip().split()
-	if not (h,r) in lef:
-		lef[(h,r)] = []
-	if not (r,t) in rig:
-		rig[(r,t)] = []
-	lef[(h,r)].append(t)
-	rig[(r,t)].append(h)
-	if not r in rellef:
-		rellef[r] = {}
-	if not r in relrig:
-		relrig[r] = {}
-	rellef[r][h] = 1
-	relrig[r][t] = 1
+def main(args):
+    # 读取数据
+    train_triples = read_triples(f"data/{args.dataset}/train.txt")
+    valid_triples = read_triples(f"data/{args.dataset}/valid.txt")
+    test_triples = read_triples(f"data/{args.dataset}/test.txt")
 
-tot = (int)(test.readline())
-for i in range(tot):
-	content = test.readline()
-	h,t,r = content.strip().split()
-	if not (h,r) in lef:
-		lef[(h,r)] = []
-	if not (r,t) in rig:
-		rig[(r,t)] = []
-	lef[(h,r)].append(t)
-	rig[(r,t)].append(h)
-	if not r in rellef:
-		rellef[r] = {}
-	if not r in relrig:
-		relrig[r] = {}
-	rellef[r][h] = 1
-	relrig[r][t] = 1
+    all_triples = train_triples + valid_triples + test_triples
 
-test.close()
-valid.close()
-triple.close()
+    lef = {}      # (h, r) -> [t1, t2, ...]
+    rig = {}      # (r, t) -> [h1, h2, ...]
+    rellef = {}   # r -> {h:1}
+    relrig = {}   # r -> {t:1}
 
-f = open("type_constrain.txt", "w")
-f.write("%d\n"%(len(rellef)))
-for i in rellef:
-	f.write("%s\t%d"%(i,len(rellef[i])))
-	for j in rellef[i]:
-		f.write("\t%s"%(j))
-	f.write("\n")
-	f.write("%s\t%d"%(i,len(relrig[i])))
-	for j in relrig[i]:
-		f.write("\t%s"%(j))
-	f.write("\n")
-f.close()
+    # 统计结构
+    for h, t, r in all_triples:
+        lef.setdefault((h, r), []).append(t)
+        rig.setdefault((r, t), []).append(h)
+        rellef.setdefault(r, {})[h] = 1
+        relrig.setdefault(r, {})[t] = 1
 
-rellef = {}
-totlef = {}
-relrig = {}
-totrig = {}
-# lef: (h, r)
-# rig: (r, t)
-for i in lef:
-	if not i[1] in rellef:
-		rellef[i[1]] = 0
-		totlef[i[1]] = 0
-	rellef[i[1]] += len(lef[i])
-	totlef[i[1]] += 1.0
+    # 输出 type_constrain.txt
+    with open(f"data/{args.dataset}/type_constrain.txt", "w", encoding="utf-8") as f:
+        for r in rellef:
+            f.write(f"{r}\t{len(rellef[r])}")
+            for h in rellef[r]:
+                f.write(f"\t{h}")
+            f.write("\n")
+            f.write(f"{r}\t{len(relrig[r])}")
+            for t in relrig[r]:
+                f.write(f"\t{t}")
+            f.write("\n")
 
-for i in rig:
-	if not i[0] in relrig:
-		relrig[i[0]] = 0
-		totrig[i[0]] = 0
-	relrig[i[0]] += len(rig[i])
-	totrig[i[0]] += 1.0
+    # 计算每个关系的平均连接度
+    rellef_count = {}
+    totlef = {}
+    relrig_count = {}
+    totrig = {}
 
-s11=0
-s1n=0
-sn1=0
-snn=0
-f = open("test2id.txt", "r")
-tot = (int)(f.readline())
-for i in range(tot):
-	content = f.readline()
-	h,t,r = content.strip().split()
-	rign = rellef[r] / totlef[r]
-	lefn = relrig[r] / totrig[r]
-	if (rign < 1.5 and lefn < 1.5):
-		s11+=1
-	if (rign >= 1.5 and lefn < 1.5):
-		s1n+=1
-	if (rign < 1.5 and lefn >= 1.5):
-		sn1+=1
-	if (rign >= 1.5 and lefn >= 1.5):
-		snn+=1
-f.close()
+    for (h, r), t_list in lef.items():
+        rellef_count[r] = rellef_count.get(r, 0) + len(t_list)
+        totlef[r] = totlef.get(r, 0) + 1.0
+
+    for (r, t), h_list in rig.items():
+        relrig_count[r] = relrig_count.get(r, 0) + len(h_list)
+        totrig[r] = totrig.get(r, 0) + 1.0
+
+    # 分类统计
+    s11 = s1n = sn1 = snn = 0
+    for h, t, r in test_triples:
+        rign = rellef_count[r] / totlef[r]
+        lefn = relrig_count[r] / totrig[r]
+        if rign < 1.5 and lefn < 1.5:
+            s11 += 1
+        elif rign >= 1.5 and lefn < 1.5:
+            s1n += 1
+        elif rign < 1.5 and lefn >= 1.5:
+            sn1 += 1
+        else:
+            snn += 1
+
+    # 分类输出
+    with open(f"data/{args.dataset}/1-1.txt", "w", encoding="utf-8") as f11, \
+        open(f"data/{args.dataset}/1-n.txt", "w", encoding="utf-8") as f1n, \
+        open(f"data/{args.dataset}/n-1.txt", "w", encoding="utf-8") as fn1, \
+        open(f"data/{args.dataset}/n-n.txt", "w", encoding="utf-8") as fnn, \
+        open(f"data/{args.dataset}/test_all.txt", "w", encoding="utf-8") as fall:
+
+        for h, t, r in test_triples:
+            rign = rellef_count[r] / totlef[r]
+            lefn = relrig_count[r] / totrig[r]
+            triple_str = f"{h}\t{r}\t{t}\n"
+            if rign < 1.5 and lefn < 1.5:
+                f11.write(triple_str)
+                fall.write(f"0\t{h}\t{r}\t{t}\n")
+            elif rign >= 1.5 and lefn < 1.5:
+                f1n.write(triple_str)
+                fall.write(f"1\t{h}\t{r}\t{t}\n")
+            elif rign < 1.5 and lefn >= 1.5:
+                fn1.write(triple_str)
+                fall.write(f"2\t{h}\t{r}\t{t}\n")
+            else:
+                fnn.write(triple_str)
+                fall.write(f"3\t{h}\t{r}\t{t}\n")
+
+    print("✅ 分类完成：")
+    print(f"1-1: {s11}, 1-N: {s1n}, N-1: {sn1}, N-N: {snn}")
 
 
-f = open("test2id.txt", "r")
-f11 = open("1-1.txt", "w")
-f1n = open("1-n.txt", "w")
-fn1 = open("n-1.txt", "w")
-fnn = open("n-n.txt", "w")
-fall = open("test2id_all.txt", "w")
-tot = (int)(f.readline())
-fall.write("%d\n"%(tot))
-f11.write("%d\n"%(s11))
-f1n.write("%d\n"%(s1n))
-fn1.write("%d\n"%(sn1))
-fnn.write("%d\n"%(snn))
-for i in range(tot):
-	content = f.readline()
-	h,t,r = content.strip().split()
-	rign = rellef[r] / totlef[r]
-	lefn = relrig[r] / totrig[r]
-	if (rign < 1.5 and lefn < 1.5):
-		f11.write(content)
-		fall.write("0"+"\t"+content)
-	if (rign >= 1.5 and lefn < 1.5):
-		f1n.write(content)
-		fall.write("1"+"\t"+content)
-	if (rign < 1.5 and lefn >= 1.5):
-		fn1.write(content)
-		fall.write("2"+"\t"+content)
-	if (rign >= 1.5 and lefn >= 1.5):
-		fnn.write(content)
-		fall.write("3"+"\t"+content)
-fall.close()
-f.close()
-f11.close()
-f1n.close()
-fn1.close()
-fnn.close()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Parser For Arguments', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--data', dest='dataset', default='FB15k-237', help='Dataset to use, default: FB15k-237')
+    args = parser.parse_args()
+
+    main(args)
