@@ -172,11 +172,11 @@ class EnhancedUCB1Policy:
         # 2. 稀疏实体度数分桶（可选，如果计算开销可接受）
         try:
             degree = len(node.data_loader.get_one_hop_neighbors(node.sparse_entity))
-            if degree > 30:
+            if degree > 150:
                 degree_bucket = "high_degree"
-            elif degree > 20:
+            elif degree > 50:
                 degree_bucket = "medium_degree"
-            elif degree > 10:
+            elif degree > 20:
                 degree_bucket = "normal_degree"
             else:
                 degree_bucket = "low_degree"

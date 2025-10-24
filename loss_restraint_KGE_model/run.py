@@ -431,14 +431,14 @@ class Runner(object):
 
                 for row in entity_ranks:
                     entity_id = row[0].item()
-                    rank = 1.0/(row[1].item())
+                    rrank = 1.0/(row[1].item())
 
                     if entity_id in self.entity_mrr_totals:
-                        self.entity_mrr_totals[entity_id] += rank
+                        self.entity_mrr_totals[entity_id] += rrank
                         self.entity_count[entity_id] += 1
 
                     else:
-                        self.entity_mrr_totals[entity_id] = rank
+                        self.entity_mrr_totals[entity_id] = rrank
                         self.entity_count[entity_id] = 1
 
                 results['count'] = torch.numel(ranks) + results.get('count', 0.0)
@@ -453,36 +453,6 @@ class Runner(object):
                         split.title(), mode.title(), step, self.p.name))
 
         return results
-
-    def analyze_entity_mrr(self):
-        """
-        Analyzes and returns the per-entity MRR based on the stats
-        collected from the last `predict` call.
-
-        Returns
-        -------
-        sorted_entity_mrr: A dictionary with entity IDs as keys and their
-                           average MRR as values, sorted by entity ID.
-        """
-        # 检查 predict 是否已经被调用并生成了统计数据
-        if not hasattr(self, 'entity_mrr_totals') or not self.entity_mrr_totals:
-            print("Warning: Please run predict() first to collect entity statistics.")
-            return {}
-
-        entity_mrr_average = {}
-        for entity_id in self.entity_mrr_totals.keys():
-            entity_mrr_average[entity_id] = self.entity_mrr_totals[entity_id] / self.entity_count[entity_id]
-
-        # 排序
-        sorted_items = sorted(entity_mrr_average.items(), key=lambda x: x[0])
-
-        # 清理键的类型并创建最终字典
-        sorted_entity_mrr = {int(float(key)): value for key, value in sorted_items}
-
-        # (可选) 也可以将结果存回 self，如果希望在对象内部保留它
-        # self.entity_mrr_average = sorted_entity_mrr
-
-        return sorted_entity_mrr
 
     def run_epoch(self, epoch, val_mrr=0, clean_rate=1):
         """
@@ -744,7 +714,67 @@ class Runner(object):
             )
 
     def test_entity_degree(self):
-        pass
+        self.best_val_mrr, self.best_val, self.best_epoch, val_mrr = 0., {}, 0, 0.
+        save_path = os.path.join(self.p.save_dir, self.p.name + '.pth')
+
+        if self.p.restore:
+            self.load_model(save_path)
+            self.logger.info('Successfully Loaded previous model')
+
+        # 触发计算
+        results = self.evaluate('test', -1)
+
+        entity_performance = [0] * 10
+        rr_sum = [0] * 10
+        cnt_sum = [0] * 10
+        entity2degree = self._get_entity2degree()
+        for entity in self.entity_mrr_totals.keys():
+            deg = entity2degree[entity]
+            if 0 <= deg < 4:
+                rr_sum[0] += self.entity_mrr_totals[entity]
+                cnt_sum[0] += self.entity_count[entity]
+            elif deg <8:
+                rr_sum[1] += self.entity_mrr_totals[entity]
+                cnt_sum[1] += self.entity_count[entity]
+            elif deg <12:
+                rr_sum[2] += self.entity_mrr_totals[entity]
+                cnt_sum[2] += self.entity_count[entity]
+            elif deg <16:
+                rr_sum[3] += self.entity_mrr_totals[entity]
+                cnt_sum[3] += self.entity_count[entity]
+            elif deg <20:
+                rr_sum[4] += self.entity_mrr_totals[entity]
+                cnt_sum[4] += self.entity_count[entity]
+            elif deg <50:
+                rr_sum[5] += self.entity_mrr_totals[entity]
+                cnt_sum[5] += self.entity_count[entity]
+            elif deg <100:
+                rr_sum[6] += self.entity_mrr_totals[entity]
+                cnt_sum[6] += self.entity_count[entity]
+            elif deg <200:
+                rr_sum[7] += self.entity_mrr_totals[entity]
+                cnt_sum[7] += self.entity_count[entity]
+            elif deg <350:
+                rr_sum[8] += self.entity_mrr_totals[entity]
+                cnt_sum[8] += self.entity_count[entity]
+            else:
+                rr_sum[9] += self.entity_mrr_totals[entity]
+                cnt_sum[9] += self.entity_count[entity]
+
+        for i in range(10):
+            entity_performance[i] = rr_sum[i] / cnt_sum[i]
+
+        print(f"Entity performance: {entity_performance}")
+
+    def _get_entity2degree(self):
+        entt2deg = ddict(int)
+        train_data = f'data/{self.p.dataset}/train.txt'
+        with open(train_data, 'r') as f:
+            for line in f:
+                h, r, t = line.strip().split('\t')
+                entt2deg[self.ent2id[h]] += 1
+                entt2deg[self.ent2id[t]] += 1
+        return entt2deg
 
     def case_study(self):
         pass

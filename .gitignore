@@ -10,3 +10,4 @@ auxiliary_triples.txt
 auxiliary_triples_old.txt
 merged_auxiliary_triples.txt
 true_triplets.txt
+*.otf
