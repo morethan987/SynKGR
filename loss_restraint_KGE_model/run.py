@@ -813,25 +813,30 @@ class Runner(object):
 
         # 2. 定义测试的案例
         case_studies = [
-            { # (Mediterranean Sea, /location/location/contains, ?)
-                'triple': ('/m/04swx', '/location/location/contains', None),
+            { # (/m/047vp1n, /film/film/genre, /m/05p553)
+                'triple': ('/m/047vp1n', '/film/film/genre', None),
+                'label': '/m/05p553',
                 'mode': 'tail' # 预测尾实体
             },
-            { # (Bristol, /sports/sports_team_location/teams, ?)
-                'triple': ('/m/095l0', '/sports/sports_team_location/teams', None),
+            { # (/m/01vl17, /people/person/profession, /m/015h31)
+                'triple': ('/m/01vl17', '/people/person/profession', None),
+                'label': '/m/015h31',
                 'mode': 'tail'
             },
-            { # (Mathematics, /film/film_subject/films, ?)
-                'triple': ('/m/04rjg', '/film/film_subject/films', None),
+            { # (/m/0mwh1, /location/location/time_zones, /m/02hcv8)
+                'triple': ('/m/0mwh1', '/location/location/time_zones', None),
+                'label': '/m/02hcv8',
                 'mode': 'tail'
             },
-            { # (? , /location/location/contains, Durham University)
-                'triple': (None, '/location/location/contains', '/m/07wtc'),
+            { # (/m/018s6c, /people/ethnicity/people, /m/0g_rs_)
+                'triple': (None, '/people/ethnicity/people', '/m/0g_rs_'),
+                'label': '/m/018s6c',
                 'mode': 'head' # 预测头实体
             },
-            { # (? , /people/person/nationality, Serbia)
-                'triple': (None, '/people/person/nationality', '/m/077qn'),
-                 'mode': 'head'
+            { # (/m/0jdk0, /people/cause_of_death/people, /m/010xjr)
+                'triple': (None, '/people/cause_of_death/people', '/m/010xjr'),
+                'label': '/m/0jdk0',
+                'mode': 'head'
             }
         ]
 
@@ -840,6 +845,7 @@ class Runner(object):
                 print(f"\n--- Case Study {i+1} ---")
 
                 h_str, r_str, t_str = case['triple']
+                target_entity_str = case['label']
                 mode = case['mode']
 
                 try:
@@ -849,7 +855,8 @@ class Runner(object):
                     if mode == 'tail':
                         # --- 尾实体预测 ---
                         h_id = self.ent2id[h_str]
-                        target_entity_id = self.sr2o_all[(h_id,r_id)][0]
+                        # target_entity_id = self.sr2o_all[(h_id,r_id)][0]
+                        target_entity_id = self.ent2id[target_entity_str]
                         print(f"Query: ({h_str}, {r_str}, ?)")
                         print(f"Target: {self.id2ent[target_entity_id]}")
 
@@ -865,7 +872,8 @@ class Runner(object):
                         t_id = self.ent2id[t_str]
                         # 对于头实体预测，我们需要使用逆关系
                         r_inv_id = r_id + self.p.num_rel
-                        target_entity_id = self.sr2o_all[(t_id,r_inv_id)][0]
+                        # target_entity_id = self.sr2o_all[(t_id,r_inv_id)][0]
+                        target_entity_id = self.ent2id[target_entity_str]
                         print(f"Query: (?, {r_str}, {t_str})")
                         print(f"Target: {self.id2ent[target_entity_id]}")
 

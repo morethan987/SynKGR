@@ -6,6 +6,7 @@
 DATA_SET='FB15k-237N'
 OUTPUT_DIR='loss_restraint_KGE_model/output/fb15k-237n'
 TIME_STAMP=$(date +%Y%m%d_%H%M%S)
+NAME='test_run_20251012_191309'
 
 # 创建目录及文件
 mkdir -p $OUTPUT_DIR
@@ -26,7 +27,7 @@ fi
 
 python loss_restraint_KGE_model/run.py \
     --restore \
-    --name test_run_20251012_191309 \
+    --name $NAME \
     --mode case_study \
     --time_string $TIME_STAMP \
     --data $DATA_SET \
@@ -38,4 +39,4 @@ python loss_restraint_KGE_model/run.py \
     --batch 256 \
     --lr 5e-4 \
     --epoch 500 \
-    --gpu 2
+    --gpu 1

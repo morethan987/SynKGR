@@ -129,7 +129,6 @@ class ExplorationFirstPolicy:
     def __init__(self, rank):
         self.logger = setup_logger(self.__class__.__name__)
         self.rank = rank
-        self.exploration_factor = exploration_factor
 
         # 存储每个 (状态, 动作) 对的平均奖励
         self.q_values = defaultdict(lambda: defaultdict(float))
