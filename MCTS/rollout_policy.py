@@ -8,51 +8,194 @@ from setup_logger import setup_logger, rank_logger
 if TYPE_CHECKING:
     from node import SearchNode
 
-class UCB1Policy:
-    """
-    一个MCTS的Rollout策略，它使用上下文多臂老虎机算法（基于UCB1）进行在线学习。
+# class UCB1Policy:
+#     """
+#     一个MCTS的Rollout策略，它使用上下文多臂老虎机算法（基于UCB1）进行在线学习。
 
-    这个类的实例应该在多个MCTS任务之间共享，以便积累知识。
+#     这个类的实例应该在多个MCTS任务之间共享，以便积累知识。
+#     """
+#     def __init__(self, rank):
+#         self.logger = setup_logger(self.__class__.__name__)
+#         self.rank = rank
+#         # 存储每个 (状态, 动作) 对的平均奖励
+#         self.q_values = defaultdict(lambda: defaultdict(float))
+
+#         # 存储每个 (状态, 动作) 对被选择的次数
+#         # 结构: self.counts[state_key][action_key] = count
+#         self.counts = defaultdict(lambda: defaultdict(int))
+
+#         # 存储每个状态被访问的总次数
+#         self.state_total_counts = defaultdict(int)
+
+#     def _get_state_key(self, node: 'SearchNode') -> str:
+#         """将当前节点的状态转化为一个离散的、可作为字典键的字符串。"""
+
+#         # 1. 离散化候选实体的数量 (这是最重要的上下文)
+#         num_candidates = len(node.unfiltered_entities)
+#         if num_candidates > 1000:
+#             size_bucket = "large"  # 候选集 > 1000
+#         elif num_candidates > 100:
+#             size_bucket = "medium" # 候选集 101-1000
+#         else:
+#             size_bucket = "small"  # 候选集 <= 100
+
+#         return f"size:{size_bucket}"
+
+#     def get_action(self, node: 'SearchNode', potential_actions: list) -> type:
+#         """根据UCB1算法选择最佳动作（即节点类型）。"""
+#         state_key = self._get_state_key(node)
+#         total_visits_at_state = self.state_total_counts[state_key]
+
+#         # 如果这是一个全新的状态，没有任何历史数据，则随机探索
+#         if total_visits_at_state == 0:
+#             return random.choice(potential_actions)
+
+#         best_action_class = None
+#         max_ucb_score = -1.0
+
+#         for action_class in potential_actions:
+#             action_key = action_class.__name__  # 例如 "KGENode", "GraphNode"
+
+#             # 如果某个动作在这个状态下从未被尝试过，优先选择它（无限大UCB值）
+#             if self.counts[state_key][action_key] == 0:
+#                 return action_class
+
+#             # 1. 计算“利用”项 (Exploitation): 该动作的平均奖励
+#             average_reward = self.q_values[state_key][action_key]
+
+#             # 2. 计算“探索”项 (Exploration): 不确定性带来的奖励加成
+#             exploration_bonus = math.sqrt(
+#                 2 * math.log(total_visits_at_state) / self.counts[state_key][action_key]
+#             )
+
+#             ucb_score = average_reward + exploration_bonus
+
+#             if ucb_score > max_ucb_score:
+#                 max_ucb_score = ucb_score
+#                 best_action_class = action_class
+
+#         return best_action_class
+
+#     def update(self, rollout_path: List[Tuple['SearchNode', type]], reward: float):
+#         """使用一次完整Rollout的结果来更新策略模型的权重。"""
+#         for state_node, action_class in rollout_path:
+#             state_key = self._get_state_key(state_node)
+#             action_key = action_class.__name__
+
+#             # 更新访问次数
+#             self.counts[state_key][action_key] += 1
+#             self.state_total_counts[state_key] += 1
+
+#             # 使用增量方式更新Q值
+#             # Q_new = Q_old + (reward - Q_old) / N
+#             q_old = self.q_values[state_key][action_key]
+#             n = self.counts[state_key][action_key]
+#             self.q_values[state_key][action_key] += (reward - q_old) / n
+#         rank_logger(self.logger, self.rank)(f"Updated policy with reward: {reward}, path length: {len(rollout_path)}")
+
+#     def get_state(self) -> dict:
+#         """
+#         返回策略的当前状态，以便于序列化保存。
+#         将 defaultdict 转换为普通 dict 以便 JSON 兼容。
+#         """
+#         return {
+#             "q_values": dict(self.q_values),
+#             "counts": dict(self.counts),
+#             "state_total_counts": dict(self.state_total_counts),
+#         }
+
+#     def load_state(self, state: dict):
+#         """
+#         从一个字典加载策略的状态。
+#         """
+#         # 从加载的普通 dict 恢复 defaultdict 的内容
+#         self.q_values.update(state.get("q_values", {}))
+#         self.counts.update(state.get("counts", {}))
+#         self.state_total_counts.update(state.get("state_total_counts", {}))
+#         rank_logger(self.logger, self.rank)("Successfully loaded rollout policy state from checkpoint.")
+
+
+class ExplorationFirstPolicy:
     """
+    增强版UCB1 Rollout策略
+
+    改进点：
+    1. 更细粒度的状态分桶
+    2. 加入深度信息
+    3. 加入稀疏实体度数信息
+    4. 更稳定的Q值更新方式
+    """
+
     def __init__(self, rank):
         self.logger = setup_logger(self.__class__.__name__)
         self.rank = rank
-        # 存储每个 (状态, 动作) 对的累计奖励
-        # 结构: self.q_values[state_key][action_key] = total_reward
+        self.exploration_factor = exploration_factor
+
+        # 存储每个 (状态, 动作) 对的平均奖励
         self.q_values = defaultdict(lambda: defaultdict(float))
 
         # 存储每个 (状态, 动作) 对被选择的次数
-        # 结构: self.counts[state_key][action_key] = count
         self.counts = defaultdict(lambda: defaultdict(int))
 
         # 存储每个状态被访问的总次数
         self.state_total_counts = defaultdict(int)
 
     def _get_state_key(self, node: 'SearchNode') -> str:
-        """将当前节点的状态转化为一个离散的、可作为字典键的字符串。"""
-
-        # 1. 离散化候选实体的数量 (这是最重要的上下文)
+        """
+        将当前节点的状态转化为离散的键
+        """
+        # 1. 候选实体数量分桶（更细粒度）
         num_candidates = len(node.unfiltered_entities)
-        if num_candidates > 1000:
-            size_bucket = "large"  # 候选集 > 1000
+
+        if num_candidates > 10000:
+            size_bucket = "huge"
+        elif num_candidates > 5000:
+            size_bucket = "xlarge"
+        elif num_candidates > 2000:
+            size_bucket = "large"
+        elif num_candidates > 1000:
+            size_bucket = "medium+"
+        elif num_candidates > 500:
+            size_bucket = "medium"
         elif num_candidates > 100:
-            size_bucket = "medium" # 候选集 101-1000
+            size_bucket = "small+"
+        elif num_candidates > 50:
+            size_bucket = "small"
         else:
-            size_bucket = "small"  # 候选集 <= 100
+            size_bucket = "minimal"
 
-        # 2. (可选) 可以在此加入更多上下文信息，例如在MCTS树中的深度
-        #    为此，你需要在 SearchNode 中实现一个 get_depth() 方法
-        # depth = node.get_depth()
-        # depth_bucket = f"depth:{depth // 2}" # 每2层深度作为一个桶
+        # 2. 稀疏实体度数分桶（可选，如果计算开销可接受）
+        try:
+            degree = len(node.data_loader.get_one_hop_neighbors(node.sparse_entity))
+            if degree > 150:
+                degree_bucket = "high_degree"
+            elif degree > 50:
+                degree_bucket = "medium_degree"
+            elif degree > 20:
+                degree_bucket = "normal_degree"
+            else:
+                degree_bucket = "low_degree"
+        except:
+            degree_bucket = "unknown"
 
-        return f"size:{size_bucket}"
+        # 组合所有维度
+        return f"size:{size_bucket}|deg:{degree_bucket}"
+
+    def _get_depth(self, node: 'SearchNode') -> int:
+        """计算节点深度"""
+        depth = 0
+        temp_node = node
+        while temp_node.parent is not None:
+            depth += 1
+            temp_node = temp_node.parent
+        return depth
 
     def get_action(self, node: 'SearchNode', potential_actions: list) -> type:
-        """根据UCB1算法选择最佳动作（即节点类型）。"""
+        """探索优先选择最佳动作"""
         state_key = self._get_state_key(node)
         total_visits_at_state = self.state_total_counts[state_key]
 
-        # 如果这是一个全新的状态，没有任何历史数据，则随机探索
+        # 如果这是全新状态，随机探索
         if total_visits_at_state == 0:
             return random.choice(potential_actions)
 
@@ -60,16 +203,16 @@ class UCB1Policy:
         max_ucb_score = -1.0
 
         for action_class in potential_actions:
-            action_key = action_class.__name__  # 例如 "KGENode", "GraphNode"
+            action_key = action_class.__name__
 
-            # 如果某个动作在这个状态下从未被尝试过，优先选择它（无限大UCB值）
+            # 如果某个动作在这个状态下从未被尝试过，优先选择它
             if self.counts[state_key][action_key] == 0:
                 return action_class
 
-            # 1. 计算“利用”项 (Exploitation): 该动作的平均奖励
-            average_reward = self.q_values[state_key][action_key] / self.counts[state_key][action_key]
+            # 设置为0,纯粹新颖性探索
+            # average_reward = self.q_values[state_key][action_key]
+            average_reward = 0
 
-            # 2. 计算“探索”项 (Exploration): 不确定性带来的奖励加成
             exploration_bonus = math.sqrt(
                 2 * math.log(total_visits_at_state) / self.counts[state_key][action_key]
             )
@@ -83,7 +226,9 @@ class UCB1Policy:
         return best_action_class
 
     def update(self, rollout_path: List[Tuple['SearchNode', type]], reward: float):
-        """使用一次完整Rollout的结果来更新策略模型的权重。"""
+        """
+        使用rollout结果更新策略
+        """
         for state_node, action_class in rollout_path:
             state_key = self._get_state_key(state_node)
             action_key = action_class.__name__
@@ -92,43 +237,78 @@ class UCB1Policy:
             self.counts[state_key][action_key] += 1
             self.state_total_counts[state_key] += 1
 
-            # 使用增量方式更新Q值（平均奖励），以保证数值稳定性
-            # Q_new = Q_old + (reward - Q_old) / N
-            q_old = self.q_values[state_key][action_key]
+            # 增量更新Q值：Q_new = Q_old + (reward - Q_old) / N
             n = self.counts[state_key][action_key]
-            self.q_values[state_key][action_key] += (reward - q_old) / n
-        rank_logger(self.logger, self.rank)(f"Updated policy with reward: {reward}, path length: {len(rollout_path)}")
+            q_old = self.q_values[state_key][action_key]
+            self.q_values[state_key][action_key] = q_old + (reward - q_old) / n
+
+        # 定期日志（包含更多诊断信息）
+        if self.state_total_counts and sum(self.state_total_counts.values()) % 100 == 0:
+            # 统计各个动作的使用频率
+            action_totals = defaultdict(int)
+            for state_counts in self.counts.values():
+                for action, count in state_counts.items():
+                    action_totals[action] += count
+
+            rank_logger(self.logger, self.rank)(
+                f"UCB1 update: reward={reward:.4f}, path_len={len(rollout_path)}, "
+                f"total_states={len(self.state_total_counts)}, "
+                f"action_distribution={dict(action_totals)}"
+            )
 
     def get_state(self) -> dict:
-        """
-        返回策略的当前状态，以便于序列化保存。
-        将 defaultdict 转换为普通 dict 以便 JSON 兼容。
-        """
+        """序列化策略状态"""
         return {
-            "q_values": dict(self.q_values),
-            "counts": dict(self.counts),
+            "q_values": {k: dict(v) for k, v in self.q_values.items()},
+            "counts": {k: dict(v) for k, v in self.counts.items()},
             "state_total_counts": dict(self.state_total_counts),
         }
 
     def load_state(self, state: dict):
-        """
-        从一个字典加载策略的状态。
-        """
-        # 从加载的普通 dict 恢复 defaultdict 的内容
-        self.q_values.update(state.get("q_values", {}))
-        self.counts.update(state.get("counts", {}))
+        """从字典加载策略状态"""
+        # 加载Q值
+        for state_key, action_dict in state.get("q_values", {}).items():
+            self.q_values[state_key].update(action_dict)
+
+        # 加载计数
+        for state_key, action_dict in state.get("counts", {}).items():
+            self.counts[state_key].update(action_dict)
+
+        # 加载状态总计数
         self.state_total_counts.update(state.get("state_total_counts", {}))
-        rank_logger(self.logger, self.rank)("Successfully loaded rollout policy state from checkpoint.")
 
-class EnhancedUCB1Policy:
+        total_updates = sum(self.state_total_counts.values())
+        rank_logger(self.logger, self.rank)(
+            f"Loaded UCB1 policy: {total_updates} total updates, "
+            f"{len(self.state_total_counts)} unique states"
+        )
+
+    def get_diagnostics(self) -> dict:
+        """获取诊断信息"""
+        # 统计每个状态的最优动作
+        state_preferences = {}
+        for state_key, action_q_values in self.q_values.items():
+            if action_q_values:
+                best_action = max(action_q_values.items(), key=lambda x: x[1])
+                state_preferences[state_key] = best_action[0]
+
+        # 统计全局动作分布
+        action_totals = defaultdict(int)
+        for state_counts in self.counts.values():
+            for action, count in state_counts.items():
+                action_totals[action] += count
+
+        return {
+            'total_states': len(self.state_total_counts),
+            'total_updates': sum(self.state_total_counts.values()),
+            'action_distribution': dict(action_totals),
+            'sample_preferences': dict(list(state_preferences.items())[:5])
+        }
+
+
+class UCB1Policy:
     """
-    增强版UCB1 Rollout策略
-
-    改进点：
-    1. 更细粒度的状态分桶
-    2. 加入深度信息
-    3. 加入稀疏实体度数信息
-    4. 更稳定的Q值更新方式
+    UCB1 Rollout策略
     """
 
     def __init__(self, rank, exploration_factor=1.414):
@@ -214,9 +394,7 @@ class EnhancedUCB1Policy:
             if self.counts[state_key][action_key] == 0:
                 return action_class
 
-            # 设置为0,纯粹新颖性探索
-            # average_reward = self.q_values[state_key][action_key]
-            average_reward = 0
+            average_reward = self.q_values[state_key][action_key]
 
             exploration_bonus = self.exploration_factor * math.sqrt(
                 math.log(total_visits_at_state) / self.counts[state_key][action_key]
@@ -233,8 +411,6 @@ class EnhancedUCB1Policy:
     def update(self, rollout_path: List[Tuple['SearchNode', type]], reward: float):
         """
         使用rollout结果更新策略
-
-        改进：使用增量方式更新Q值，数值更稳定
         """
         for state_node, action_class in rollout_path:
             state_key = self._get_state_key(state_node)
@@ -311,6 +487,7 @@ class EnhancedUCB1Policy:
             'action_distribution': dict(action_totals),
             'sample_preferences': dict(list(state_preferences.items())[:5])
         }
+
 
 class LinUCBRolloutPolicy:
     """

@@ -165,23 +165,34 @@ class Runner(object):
             self.triples = ddict(list)
 
             for (sub, rel), obj in self.sr2o.items():
-                self.triples['train'].append({'triple': (sub, rel, -1), 'label': self.sr2o[(
-                    sub, rel)], 'observed_label': self.sr2observed[(sub, rel)], 'newadd_label': self.sr2newadd[(sub, rel)], 'sub_samp': 1})
+                self.triples['train'].append({
+                    'triple': (sub, rel, -1),
+                    'label': self.sr2o[(sub, rel)],
+                    'observed_label': self.sr2observed[(sub, rel)],
+                    'newadd_label': self.sr2newadd[(sub, rel)], 'sub_samp': 1
+                })
         else:
             self.sr2o_all = {k: list(v) for k, v in sr2o.items()}
             self.triples = ddict(list)
 
             for (sub, rel), obj in self.sr2o.items():
-                self.triples['train'].append(
-                    {'triple': (sub, rel, -1), 'label': self.sr2o[(sub, rel)], 'sub_samp': 1})
+                self.triples['train'].append({
+                    'triple': (sub, rel, -1),
+                    'label': self.sr2o[(sub, rel)],
+                    'sub_samp': 1
+                })
 
         for split in ['test', 'valid']:
             for sub, rel, obj in self.data[split]:
                 rel_inv = rel + self.p.num_rel
-                self.triples['{}_{}'.format(split, 'tail')].append(
-                    {'triple': (sub, rel, obj), 	   'label': self.sr2o_all[(sub, rel)]})
-                self.triples['{}_{}'.format(split, 'head')].append(
-                    {'triple': (obj, rel_inv, sub), 'label': self.sr2o_all[(obj, rel_inv)]})
+                self.triples['{}_{}'.format(split, 'tail')].append({
+                    'triple': (sub, rel, obj),
+                    'label': self.sr2o_all[(sub, rel)]
+                })
+                self.triples['{}_{}'.format(split, 'head')].append({
+                    'triple': (obj, rel_inv, sub),
+                    'label': self.sr2o_all[(obj, rel_inv)]
+                })
 
         self.triples = dict(self.triples)
 

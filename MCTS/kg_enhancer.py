@@ -4,7 +4,7 @@ from kg_data_loader import KGDataLoader
 from model_calls import OpenKEClient
 from mcts_tree import MCTS
 from node import SearchRootNode, Context
-from rollout_policy import UCB1Policy, LinUCBRolloutPolicy, EnhancedUCB1Policy
+from rollout_policy import UCB1Policy, LinUCBRolloutPolicy, ExplorationFirstPolicy
 from LLM_Discriminator.discriminator import TriplesDiscriminator
 from setup_logger import setup_logger, rank_logger
 
@@ -57,8 +57,9 @@ class KGEnhancer:
         self.exploration_weight = exploration_weight
 
         # 初始化策略类
-        # self.rollout_policy = UCB1Policy(rank=self.rank)
-        self.rollout_policy = EnhancedUCB1Policy(rank=self.rank, exploration_factor=3.0)
+        self.rollout_policy = ExplorationFirstPolicy(rank=self.rank)
+        # self.rollout_policy = None # 纯随机
+        # self.rollout_policy = UCB1Policy(rank=self.rank, exploration_factor=1.414)
         # self.rollout_policy = LinUCBRolloutPolicy(
         #     rank=self.rank,
         #     alpha=1.5,        # 稍微激进一点的探索
