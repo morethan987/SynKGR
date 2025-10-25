@@ -119,7 +119,7 @@ class Runner(object):
                         sr2observed[(sub, rel)].add(obj)
                         sr2observed[(obj, rel+self.p.num_rel)].add(sub)
 
-                if self.p.loss_delta > 0:
+                if self.p.loss_delta > 0 or self.p.keep_aux:
                     aux_cnt = 0
                     for line in open(f'data/{self.p.dataset}/auxiliary_triples.txt'):
                         sub, rel, obj = map(
@@ -401,22 +401,69 @@ class Runner(object):
         #     f'[Epoch {epoch} {split}]: MRR: Tail : {results["left_mrr"]:.5}, Head : {results["right_mrr"]:.5}, Avg : {results["mrr"]:.5}')
         return results
 
-    def predict(self, split='valid', mode='tail_batch'):
+    def _process_single_prediction(self, pred, obj, label, results):
         """
-        Function to run model evaluation for a given mode
+        Processes a single prediction to calculate rank and update evaluation metrics.
 
         Parameters
         ----------
-        split: (string) 	If split == 'valid' then evaluate on the validation set, else the test set
-        mode: (string):		Can be 'head_batch' or 'tail_batch'
+        pred: (torch.Tensor)    The model's prediction scores for a single subject and relation.
+        obj: (torch.Tensor)     The ground truth object for the single triple.
+        label: (torch.Tensor)   The label tensor for the single triple.
+        results: (dict)         The dictionary to update with evaluation metrics.
 
         Returns
         -------
-        resutls:			The evaluation results containing the following:
-            results['mr']:         	Average of ranks_left and ranks_right
-            results['mrr']:         Mean Reciprocal Rank
-            results['hits@k']:      Probability of getting the correct preodiction in top-k ranks based on predicted score
+        results: (dict)         The updated evaluation results.
+        """
+        b_range = torch.arange(pred.size()[0], device=self.device)
+        target_pred = pred[b_range, obj]
+        pred = torch.where(label.byte(), -torch.ones_like(pred) * 10000000, pred)
+        pred[b_range, obj] = target_pred
+        ranks = 1 + torch.argsort(torch.argsort(pred, dim=1, descending=True), dim=1, descending=False)[b_range, obj]
+        ranks = ranks.float()
 
+        ranks_ = torch.unsqueeze(ranks, dim=1)
+        label_ = label.argmax(dim=1)
+        label_ = torch.unsqueeze(label_, dim=1)
+
+        entity_ranks = torch.cat((label_, ranks_), dim=1)
+
+        for row in entity_ranks:
+            entity_id = row[0].item()
+            rrank = 1.0 / (row[1].item())
+
+            if entity_id in self.entity_mrr_totals:
+                self.entity_mrr_totals[entity_id] += rrank
+                self.entity_count[entity_id] += 1
+            else:
+                self.entity_mrr_totals[entity_id] = rrank
+                self.entity_count[entity_id] = 1
+
+        results['count'] = torch.numel(ranks) + results.get('count', 0.0)
+        results['mr'] = torch.sum(ranks).item() + results.get('mr', 0.0)
+        results['mrr'] = torch.sum(1.0 / ranks).item() + results.get('mrr', 0.0)
+        for k in range(10):
+            results['hits@{}'.format(k + 1)] = torch.numel(
+                ranks[ranks <= (k + 1)]) + results.get('hits@{}'.format(k + 1), 0.0)
+
+        return results
+
+    def predict(self, split='valid', mode='tail_batch'):
+        """
+        Function to run model evaluation for a given mode.
+
+        Parameters
+        ----------
+        split: (string)        If split == 'valid' then evaluate on the validation set, else the test set.
+        mode: (string):        Can be 'head_batch' or 'tail_batch'.
+
+        Returns
+        -------
+        results:            The evaluation results containing the following:
+            results['mr']:         Average of ranks_left and ranks_right
+            results['mrr']:        Mean Reciprocal Rank
+            results['hits@k']:     Probability of getting the correct prediction in top-k ranks based on predicted score.
         """
         self.model.eval()
 
@@ -427,39 +474,11 @@ class Runner(object):
             for step, batch in enumerate(train_iter):
                 sub, rel, obj, label = self.read_batch(batch, split)
                 pred = self.model.forward(sub, rel)
-                b_range = torch.arange(pred.size()[0], device=self.device)
-                target_pred = pred[b_range, obj]
-                pred = torch.where(label.byte(), -torch.ones_like(pred) * 10000000, pred)
-                pred[b_range, obj] = target_pred
-                ranks = 1 + torch.argsort(torch.argsort(pred, dim=1, descending=True), dim=1, descending=False)[b_range, obj]
-                ranks = ranks.float()
 
-                ranks_ = torch.unsqueeze(ranks, dim=1)
-                label_ = label.argmax(dim=1)
-                label_ = torch.unsqueeze(label_, dim=1)
+                # The core logic for processing each prediction is now in a separate function
+                results = self._process_single_prediction(pred, obj, label, results)
 
-                entity_ranks = torch.cat((label_, ranks_), dim=1)
-
-                for row in entity_ranks:
-                    entity_id = row[0].item()
-                    rrank = 1.0/(row[1].item())
-
-                    if entity_id in self.entity_mrr_totals:
-                        self.entity_mrr_totals[entity_id] += rrank
-                        self.entity_count[entity_id] += 1
-
-                    else:
-                        self.entity_mrr_totals[entity_id] = rrank
-                        self.entity_count[entity_id] = 1
-
-                results['count'] = torch.numel(ranks) + results.get('count', 0.0)
-                results['mr'] = torch.sum(ranks).item() + results.get('mr', 0.0)
-                results['mrr'] = torch.sum(1.0/ranks).item() + results.get('mrr', 0.0)
-                for k in range(10):
-                    results['hits@{}'.format(k+1)] = torch.numel(
-                        ranks[ranks <= (k+1)]) + results.get('hits@{}'.format(k+1), 0.0)
-
-                if step+1 % 100 == 0:
+                if (step + 1) % 100 == 0:
                     self.logger.info('[{}, {} Step {}]\t{}'.format(
                         split.title(), mode.title(), step, self.p.name))
 
@@ -486,21 +505,16 @@ class Runner(object):
             self.optimizer.zero_grad()
             if self.p.loss_delta < 0:
                 sub, rel, obj, label = self.read_batch(batch, 'train')
-
                 pred = self.model.forward(sub, rel)
                 loss = self.model.loss(pred, label)
             elif self.p.loss_only_new > 0:
-                sub, rel, obj, label, obeserved_label, newadd_label = self.read_batch(
-                    batch, 'train')
+                sub, rel, obj, label, obeserved_label, newadd_label = self.read_batch(batch, 'train')
                 pred = self.model.forward(sub, rel)
-                loss = self.model.modify_loss_only_add(
-                    pred, label, newadd_label, clean_rate)
+                loss = self.model.modify_loss_only_add(pred, label, newadd_label, clean_rate)
             else:
-                sub, rel, obj, label, obeserved_label, newadd_label = self.read_batch(
-                    batch, 'train')
+                sub, rel, obj, label, obeserved_label, newadd_label = self.read_batch(batch, 'train')
                 pred = self.model.forward(sub, rel)
-                loss = self.model.modify_loss(
-                    pred, label, obeserved_label, clean_rate)
+                loss = self.model.modify_loss(pred, label, obeserved_label, clean_rate)
 
             loss.backward()
             self.optimizer.step()
@@ -788,7 +802,103 @@ class Runner(object):
         return entt2deg
 
     def case_study(self):
-        pass
+        """
+        对具体的三元组进行案例分析，展示模型的预测能力。
+        """
+        # 1. 加载最佳模型
+        save_path = os.path.join(self.p.save_dir, self.p.name + '.pth')
+        self.load_model(save_path)
+        self.logger.info('Successfully Loaded previous model for Case Study')
+        self.model.eval()
+
+        # 2. 定义测试的案例
+        case_studies = [
+            { # (Mediterranean Sea, /location/location/contains, ?)
+                'triple': ('/m/04swx', '/location/location/contains', None),
+                'mode': 'tail' # 预测尾实体
+            },
+            { # (Bristol, /sports/sports_team_location/teams, ?)
+                'triple': ('/m/095l0', '/sports/sports_team_location/teams', None),
+                'mode': 'tail'
+            },
+            { # (Mathematics, /film/film_subject/films, ?)
+                'triple': ('/m/04rjg', '/film/film_subject/films', None),
+                'mode': 'tail'
+            },
+            { # (? , /location/location/contains, Durham University)
+                'triple': (None, '/location/location/contains', '/m/07wtc'),
+                'mode': 'head' # 预测头实体
+            },
+            { # (? , /people/person/nationality, Serbia)
+                'triple': (None, '/people/person/nationality', '/m/077qn'),
+                 'mode': 'head'
+            }
+        ]
+
+        with torch.no_grad():
+            for i, case in enumerate(case_studies):
+                print(f"\n--- Case Study {i+1} ---")
+
+                h_str, r_str, t_str = case['triple']
+                mode = case['mode']
+
+                try:
+                    # 3. 将字符串转换为ID
+                    r_id = self.rel2id[r_str]
+
+                    if mode == 'tail':
+                        # --- 尾实体预测 ---
+                        h_id = self.ent2id[h_str]
+                        target_entity_id = self.sr2o_all[(h_id,r_id)][0]
+                        print(f"Query: ({h_str}, {r_str}, ?)")
+                        print(f"Target: {self.id2ent[target_entity_id]}")
+
+                        # 准备输入
+                        sub = torch.LongTensor([h_id]).to(self.device)
+                        rel = torch.LongTensor([r_id]).to(self.device)
+
+                        # 4. 执行预测
+                        pred = self.model.forward(sub, rel)
+
+                    elif mode == 'head':
+                        # --- 头实体预测 ---
+                        t_id = self.ent2id[t_str]
+                        # 对于头实体预测，我们需要使用逆关系
+                        r_inv_id = r_id + self.p.num_rel
+                        target_entity_id = self.sr2o_all[(t_id,r_inv_id)][0]
+                        print(f"Query: (?, {r_str}, {t_str})")
+                        print(f"Target: {self.id2ent[target_entity_id]}")
+
+                        # 准备输入
+                        sub = torch.LongTensor([t_id]).to(self.device)
+                        rel = torch.LongTensor([r_inv_id]).to(self.device)
+
+                        # 4. 执行预测
+                        pred = self.model.forward(sub, rel)
+
+                    else:
+                        print(f"Invalid mode: {mode}")
+                        continue
+
+                    # 5. 分析并打印结果
+                    # 对所有实体的得分进行降序排序
+                    sorted_scores, sorted_indices = torch.sort(pred.squeeze(0), descending=True)
+
+                    # 找到目标实体的排名
+                    # `(sorted_indices == target_entity_id).nonzero()` 会返回一个张量，其中包含了目标ID在排序后列表中的位置
+                    rank = (sorted_indices == target_entity_id).nonzero().item() + 1
+                    print(f"Rank of '{self.id2ent[target_entity_id]}': {rank}")
+
+                    # 打印前5名的预测结果
+                    print("Top 5 Predictions:")
+                    for j in range(5):
+                        top_entity_id = sorted_indices[j].item()
+                        top_entity_str = self.id2ent[top_entity_id]
+                        score = sorted_scores[j].item()
+                        print(f"  {j+1}. {top_entity_str} (Score: {score:.4f})")
+
+                except KeyError as e:
+                    print(f"Error: Entity or relation '{e}' not found in the dataset's vocabulary. Skipping this case.")
 
 
 if __name__ == '__main__':
@@ -838,6 +948,7 @@ if __name__ == '__main__':
 
     # Modify Loss-
     parser.add_argument('--loss_delta',	dest='loss_delta', default=-1, type=float, help='hyperparameter that determines the speed of increase of rejection rate')
+    parser.add_argument('--keep_aux',	dest='keep_aux', default=True, type=bool, help='Whether to keep the auxiliary triples')
     parser.add_argument('--loss_only_new', dest='loss_only_new', default=1, type=float, help='only modify the loss of the added auxiliary triples')
 
     args = parser.parse_args()

@@ -38,9 +38,13 @@ fi
 # adapt_aggr: Use adaptive message aggregator or not
 # 1 to enable
 # -1 to disable
+# keep_aux: Whether to keep the auxiliary triples,
+# default: True
+# set false to run the ablation study of knowledge graph enhance
 nohup python loss_restraint_KGE_model/run.py \
     --name $NAME \
     --mode train \
+    --keep_aux True \
     --time_string $TIME_STAMP \
     --data $DATA_SET \
     --save $OUTPUT_DIR \
