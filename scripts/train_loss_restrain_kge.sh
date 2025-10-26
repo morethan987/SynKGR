@@ -3,16 +3,16 @@
 # 使用方法: cdko && ackopa && bash scripts/train_loss_restrain_kge.sh
 
 # 路径设置
-DATA_SET='FB15k-237N'
-# DATA_SET='CoDEx-S'
-NAME='fb15k_train'
-# NAME='codex_train'
-OUTPUT_DIR='loss_restraint_KGE_model/output/fb15k-237n'
-# OUTPUT_DIR='loss_restraint_KGE_model/output/codex-s'
+# DATA_SET='FB15k-237N'
+DATA_SET='CoDEx-S'
+# NAME='fb15k_train'
+NAME='codex_train'
+# OUTPUT_DIR='loss_restraint_KGE_model/output/fb15k-237n'
+OUTPUT_DIR='loss_restraint_KGE_model/output/codex-s'
 LOG_DIR='loss_restraint_KGE_model/logs'
 TIME_STAMP=$(date +%Y%m%d_%H%M%S)
-LOG_FILE="$LOG_DIR/fb15k_${TIME_STAMP}.log"
-# LOG_FILE="$LOG_DIR/codex_${TIME_STAMP}.log"
+# LOG_FILE="$LOG_DIR/fb15k_${TIME_STAMP}.log"
+LOG_FILE="$LOG_DIR/codex_${TIME_STAMP}.log"
 
 # 创建目录及文件
 mkdir -p $LOG_DIR
@@ -55,7 +55,7 @@ nohup python loss_restraint_KGE_model/run.py \
     --batch 256 \
     --lr 5e-4 \
     --epoch 500 \
-    --gpu 0 \
+    --gpu 1 \
     >> $LOG_FILE 2>&1 &
 
 # 获取进程ID

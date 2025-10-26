@@ -803,39 +803,44 @@ class Runner(object):
 
     def case_study(self):
         """
-        对具体的三元组进行案例分析，展示模型的预测能力。
+        对具体的三元组进行案例分析，展示模型的预测能力
+        此版本实现了过滤排名（Filtered Ranking）以提供更公平的评估
         """
         # 1. 加载最佳模型
         save_path = os.path.join(self.p.save_dir, self.p.name + '.pth')
+        if not os.path.exists(save_path):
+            self.logger.error(f"Model file not found at {save_path}. Please train a model first.")
+            return
+
         self.load_model(save_path)
         self.logger.info('Successfully Loaded previous model for Case Study')
         self.model.eval()
 
         # 2. 定义测试的案例
         case_studies = [
-            { # (/m/047vp1n, /film/film/genre, /m/05p553)
-                'triple': ('/m/047vp1n', '/film/film/genre', None),
-                'label': '/m/05p553',
+            { # ('/m/0n85g', '/music/record_label/artist', '/m/01vrkdt')
+                'triple': ('/m/0n85g', '/music/record_label/artist', None),
+                'label': '/m/01vrkdt',
                 'mode': 'tail' # 预测尾实体
             },
-            { # (/m/01vl17, /people/person/profession, /m/015h31)
-                'triple': ('/m/01vl17', '/people/person/profession', None),
-                'label': '/m/015h31',
+            { # (/m/0m0bj, /location/location/contains, /m/01tzfz)
+                'triple': ('/m/0m0bj', '/location/location/contains', None),
+                'label': '/m/01tzfz',
                 'mode': 'tail'
             },
-            { # (/m/0mwh1, /location/location/time_zones, /m/02hcv8)
-                'triple': ('/m/0mwh1', '/location/location/time_zones', None),
-                'label': '/m/02hcv8',
+            { # (/m/0bxbr, /location/hud_county_place/county, /m/0bx9y)
+                'triple': ('/m/0bxbr', '/location/hud_county_place/county', None),
+                'label': '/m/0bx9y',
                 'mode': 'tail'
             },
-            { # (/m/018s6c, /people/ethnicity/people, /m/0g_rs_)
-                'triple': (None, '/people/ethnicity/people', '/m/0g_rs_'),
-                'label': '/m/018s6c',
+            { # (/m/03x6m, /sports/sports_team/colors, /m/01g5v)
+                'triple': (None, '/sports/sports_team/colors', '/m/01g5v'),
+                'label': '/m/03x6m',
                 'mode': 'head' # 预测头实体
             },
-            { # (/m/0jdk0, /people/cause_of_death/people, /m/010xjr)
-                'triple': (None, '/people/cause_of_death/people', '/m/010xjr'),
-                'label': '/m/0jdk0',
+            { # (/m/03rs8y, /people/person/profession, /m/02krf9)
+                'triple': (None, '/people/person/profession', '/m/02krf9'),
+                'label': '/m/03rs8y',
                 'mode': 'head'
             }
         ]
@@ -851,59 +856,65 @@ class Runner(object):
                 try:
                     # 3. 将字符串转换为ID
                     r_id = self.rel2id[r_str]
+                    target_entity_id = self.ent2id[target_entity_str]
 
                     if mode == 'tail':
-                        # --- 尾实体预测 ---
                         h_id = self.ent2id[h_str]
-                        # target_entity_id = self.sr2o_all[(h_id,r_id)][0]
-                        target_entity_id = self.ent2id[target_entity_str]
                         print(f"Query: ({h_str}, {r_str}, ?)")
-                        print(f"Target: {self.id2ent[target_entity_id]}")
+                        print(f"Target: {target_entity_str}")
 
-                        # 准备输入
                         sub = torch.LongTensor([h_id]).to(self.device)
                         rel = torch.LongTensor([r_id]).to(self.device)
-
-                        # 4. 执行预测
                         pred = self.model.forward(sub, rel)
+
+                        # 获取用于过滤的所有正确答案
+                        true_entities = self.sr2o_all.get((h_id, r_id), [])
 
                     elif mode == 'head':
-                        # --- 头实体预测 ---
                         t_id = self.ent2id[t_str]
-                        # 对于头实体预测，我们需要使用逆关系
                         r_inv_id = r_id + self.p.num_rel
-                        # target_entity_id = self.sr2o_all[(t_id,r_inv_id)][0]
-                        target_entity_id = self.ent2id[target_entity_str]
                         print(f"Query: (?, {r_str}, {t_str})")
-                        print(f"Target: {self.id2ent[target_entity_id]}")
+                        print(f"Target: {target_entity_str}")
 
-                        # 准备输入
                         sub = torch.LongTensor([t_id]).to(self.device)
                         rel = torch.LongTensor([r_inv_id]).to(self.device)
-
-                        # 4. 执行预测
                         pred = self.model.forward(sub, rel)
+
+                        # 获取用于过滤的所有正确答案
+                        true_entities = self.sr2o_all.get((t_id, r_inv_id), [])
 
                     else:
                         print(f"Invalid mode: {mode}")
                         continue
 
                     # 5. 分析并打印结果
-                    # 对所有实体的得分进行降序排序
-                    sorted_scores, sorted_indices = torch.sort(pred.squeeze(0), descending=True)
+                    scores = pred.squeeze(0)
 
-                    # 找到目标实体的排名
-                    # `(sorted_indices == target_entity_id).nonzero()` 会返回一个张量，其中包含了目标ID在排序后列表中的位置
-                    rank = (sorted_indices == target_entity_id).nonzero().item() + 1
-                    print(f"Rank of '{self.id2ent[target_entity_id]}': {rank}")
+                    # 5a. 计算原始排名 (Raw Rank)
+                    sorted_scores_raw, sorted_indices_raw = torch.sort(scores, descending=True)
+                    raw_rank = (sorted_indices_raw == target_entity_id).nonzero().item() + 1
+                    print(f"Raw Rank of '{target_entity_str}': {raw_rank}")
 
-                    # 打印前5名的预测结果
-                    print("Top 5 Predictions:")
+                    # 5b. 计算过滤后排名 (Filtered Rank)
+                    # 关键步骤：复制一份分数，并将所有“其他”正确答案的分数设为极小值
+                    filtered_scores = scores.clone()
+                    for true_id in true_entities:
+                        # 只过滤掉不是当前目标实体的其他正确答案
+                        if true_id != target_entity_id:
+                            filtered_scores[true_id] = -float('Inf')
+
+                    sorted_scores_filtered, sorted_indices_filtered = torch.sort(filtered_scores, descending=True)
+                    filtered_rank = (sorted_indices_filtered == target_entity_id).nonzero().item() + 1
+                    print(f"Filtered Rank of '{target_entity_str}': {filtered_rank}")
+
+                    # 5c. 打印过滤后的前5名预测结果
+                    print("Top 5 Predictions (Filtered):")
                     for j in range(5):
-                        top_entity_id = sorted_indices[j].item()
+                        top_entity_id = sorted_indices_filtered[j].item()
                         top_entity_str = self.id2ent[top_entity_id]
-                        score = sorted_scores[j].item()
-                        print(f"  {j+1}. {top_entity_str} (Score: {score:.4f})")
+                        # 从原始分数中获取分数，以避免显示 -inf
+                        original_score = scores[top_entity_id].item()
+                        print(f"  {j+1}. {top_entity_str} (Score: {original_score:.4f})")
 
                 except KeyError as e:
                     print(f"Error: Entity or relation '{e}' not found in the dataset's vocabulary. Skipping this case.")

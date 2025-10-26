@@ -61,7 +61,7 @@ if TYPE_CHECKING:
 #                 return action_class
 
 #             # 1. 计算“利用”项 (Exploitation): 该动作的平均奖励
-#             average_reward = self.q_values[state_key][action_key]
+            # average_reward = self.q_values[state_key][action_key] \ self.count[state_key][action_key]
 
 #             # 2. 计算“探索”项 (Exploration): 不确定性带来的奖励加成
 #             exploration_bonus = math.sqrt(
@@ -115,7 +115,7 @@ if TYPE_CHECKING:
 #         rank_logger(self.logger, self.rank)("Successfully loaded rollout policy state from checkpoint.")
 
 
-class ExplorationFirstPolicy:
+class MomentumRewardPolicy:
     """
     增强版UCB1 Rollout策略
 
@@ -126,9 +126,10 @@ class ExplorationFirstPolicy:
     4. 更稳定的Q值更新方式
     """
 
-    def __init__(self, rank):
+    def __init__(self, rank, exploration_factor=1.414):
         self.logger = setup_logger(self.__class__.__name__)
         self.rank = rank
+        self.exploration_factor = exploration_factor
 
         # 存储每个 (状态, 动作) 对的平均奖励
         self.q_values = defaultdict(lambda: defaultdict(float))
@@ -208,15 +209,14 @@ class ExplorationFirstPolicy:
             if self.counts[state_key][action_key] == 0:
                 return action_class
 
-            # 设置为0,纯粹新颖性探索
-            # average_reward = self.q_values[state_key][action_key]
-            average_reward = 0
+            # 动量奖励,在平均奖励的基础上施加一个随着筛选次数增长的衰减
+            reward_momentum = self.q_values[state_key][action_key] / self.counts[state_key][action_key]
 
-            exploration_bonus = math.sqrt(
-                2 * math.log(total_visits_at_state) / self.counts[state_key][action_key]
+            exploration_bonus = self.exploration_factor * math.sqrt(
+                math.log(total_visits_at_state) / self.counts[state_key][action_key]
             )
 
-            ucb_score = average_reward + exploration_bonus
+            ucb_score = reward_momentum + exploration_bonus
 
             if ucb_score > max_ucb_score:
                 max_ucb_score = ucb_score
