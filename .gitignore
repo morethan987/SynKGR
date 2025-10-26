@@ -6,10 +6,9 @@ TODO.md
 output/
 *.log
 release/
-loss_restraint_KGE_model/data_preview.py
-loss_restraint_KGE_model/run_new.py
 auxiliary_triples.txt
 auxiliary_triples_old.txt
 merged_auxiliary_triples.txt
 true_triplets.txt
 *.otf
+case_search/

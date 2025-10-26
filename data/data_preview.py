@@ -1,4 +1,5 @@
 import torch
+from collections import defaultdict as ddict
 
 def check_enity2embedding(file_path: str):
     entity2embedding = torch.load(file_path)
@@ -106,6 +107,52 @@ def kg_similarity(file1, file2, merged_file_path = None):
     # 输出最终的相似度
     print(f"Jaccard 相似度: {num_intersection} / {num_union} = {similarity:.4f}")
 
+def load_data(file):
+    triples = set()
+    with open(file, 'r', encoding='utf-8') as f:
+        for line in f:
+            triple = tuple(line.strip().split('\t'))
+            if len(triple) == 3:
+                triples.add(triple)
+    return triples
+
+def get_degree(data_file: str, entity_id: str, aux_file: str = None):
+    entt2deg = ddict(int)
+    relative_tiples = set()
+    with open(data_file, 'r') as f:
+        for line in f:
+            h, r, t = line.strip().split('\t')
+            if h==entity_id or t==entity_id:
+                relative_tiples.add((h,r,t))
+            entt2deg[h] += 1
+            entt2deg[t] += 1
+
+    if aux_file:
+        with open(aux_file, 'r') as f:
+            for line in f:
+                h, r, t = line.strip().split('\t')
+                if h==entity_id or t==entity_id:
+                    relative_tiples.add((h,r,t))
+                entt2deg[h] += 1
+                entt2deg[t] += 1
+
+    print(f"Degree of entity {entity_id}: {entt2deg[entity_id]}")
+    return relative_tiples
+
+def get_entity2name(file):
+    entity2name = {}
+    with open(file, 'r', encoding='utf-8') as f:
+        for line in f:
+            entity, name = line.strip().split('\t', 1)
+            entity2name[entity] = name
+    return entity2name
+
+def check_in_test(target_data: set, test_data: set):
+    count = 0
+    for triple in target_data:
+        if triple in test_data:
+            count += 1
+    print(f"Number of triples in target data that are also in test data: {count} / {len(target_data)}")
 
 if __name__ == "__main__":
     # acko && cdko && python data/data_preview.py
@@ -128,3 +175,11 @@ if __name__ == "__main__":
     file8 = "data/CoDEx-S/auxiliary_triples_old.txt"
     codex_merged_file = "data/CoDEx-S/merged_auxiliary_triples.txt"
     kg_similarity(file5, file7)
+
+    # head = "/m/0m0bj"
+    # tail = "/m/01tzfz"
+    # relative_tiples = get_degree("data/FB15k-237N/train.txt", head, file3)
+    # check_in_test(relative_tiples, load_data("data/FB15k-237N/test.txt"))
+    # entity2name = get_entity2name("data/FB15k-237N/entity2name.txt")
+    # for triple in relative_tiples:
+    #     print(f"{entity2name.get(triple[0],'N/A')} -- {triple[1]} --> {entity2name.get(triple[2],'N/A')}")

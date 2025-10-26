@@ -818,15 +818,15 @@ class Runner(object):
 
         # 2. 定义测试的案例
         case_studies = [
-            { # ('/m/0n85g', '/music/record_label/artist', '/m/01vrkdt')
-                'triple': ('/m/0n85g', '/music/record_label/artist', None),
-                'label': '/m/01vrkdt',
-                'mode': 'tail' # 预测尾实体
-            },
             { # (/m/0m0bj, /location/location/contains, /m/01tzfz)
                 'triple': ('/m/0m0bj', '/location/location/contains', None),
                 'label': '/m/01tzfz',
                 'mode': 'tail'
+            },
+            { # ('/m/0n85g', '/music/record_label/artist', '/m/01vrkdt')
+                'triple': ('/m/0n85g', '/music/record_label/artist', None),
+                'label': '/m/01vrkdt',
+                'mode': 'tail' # 预测尾实体
             },
             { # (/m/0bxbr, /location/hud_county_place/county, /m/0bx9y)
                 'triple': ('/m/0bxbr', '/location/hud_county_place/county', None),
