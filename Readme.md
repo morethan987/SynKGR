@@ -24,13 +24,3 @@
 ## Other
 
 1. In the `data_preview.py` are many useful tools you may need.
-
-2. To find the diagnostics of rollout policy:
-
-```bash
-# only show first 10 rows
-grep "Policy diagnostics:" MCTS/logs/codex_20251021_113916.log | head -n 10
-
-# show all
-grep "Policy diagnostics:" MCTS/logs/codex_20251019_195138.log
-```
