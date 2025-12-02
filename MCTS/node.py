@@ -108,7 +108,7 @@ class SearchNode(ABC):
                 return True
         return len(self.candidate_entities) <= self.leaf_threshold
 
-    def evaluate_candidates(self) -> Tuple[List[Tuple[str, str, str]], int]:
+    def evaluate_candidates(self, seen:Set) -> Tuple[List[Tuple[str, str, str]], int]:
         """
         评估候选实体，返回正确的三元组
 
@@ -132,9 +132,15 @@ class SearchNode(ABC):
             # 跳过已存在的三元组
             if self.data_loader.triplet_exists(*triplet):
                 continue
+            # 跳过已见过的三元组
+            if triplet in seen:
+                continue
 
             triplets_to_evaluate.append(triplet)
             triplet_indices.append(idx)
+
+        # 更新 seen 集合
+        seen.update(triplets_to_evaluate)
 
         # 如果有需要评估的三元组，则使用批量分类器进行判断
         results = []

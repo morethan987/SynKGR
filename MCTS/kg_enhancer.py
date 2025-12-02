@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Set, Tuple, Optional
 
 from kg_data_loader import KGDataLoader
 from model_calls import OpenKEClient
@@ -49,6 +49,7 @@ class KGEnhancer:
         self.logger = setup_logger(self.__class__.__name__)
         self.rank = rank
         self.output_folder = output_folder
+        self.local_discovered_triplets = set()
 
         # 配置参数
         self.budget_per_entity = budget_per_entity
@@ -107,7 +108,7 @@ class KGEnhancer:
 
         self.logger.info("KGEnhancer initialized successfully")
 
-    def enhance_entity_relation(self, sparse_entity: str, position: str, relation: str) -> List[Tuple[str, str, str]]:
+    def enhance_entity_relation(self, sparse_entity: str, position: str, relation: str) -> Set[Tuple[str, str, str]]:
         """
         为指定的稀疏实体-位置-关系组合搜索正确的三元组
 
@@ -174,7 +175,10 @@ class KGEnhancer:
                              f"used {budget_increment} budget")
 
         # 去重
-        discovered_triplets = list(set(discovered_triplets))
+        discovered_triplets = set(discovered_triplets)
+
+        # 更新本地存储
+        self.local_discovered_triplets.update(discovered_triplets)
 
         rank_logger(self.logger, self.rank)(f"Enhancement completed: found {len(discovered_triplets)} unique triplets, "
                          f"total budget used: {budget_used}")

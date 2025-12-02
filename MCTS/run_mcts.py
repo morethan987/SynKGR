@@ -58,9 +58,8 @@ class Runner:
             dtype=self.args.dtype,
             device=self.device)
 
-        self.all_discovered_triplets = []
+        self.all_discovered_triplets = set()
         self.processed_entities = set()
-        self.local_discovered_triplets = []
 
         # 加载检查点
         self.load_checkpoint()
@@ -74,7 +73,7 @@ class Runner:
                     self.processed_entities = set(data.get("processed_entities", []))
                     # 加载已发现的三元组
                     saved_triplets = data.get("discovered_triplets", [])
-                    self.local_discovered_triplets.extend(saved_triplets)
+                    self.enhancer.local_discovered_triplets.update(saved_triplets)
                     # 新增：加载并恢复策略模型的状态
                     if "rollout_policy_state" in data:
                         policy_state = data["rollout_policy_state"]
@@ -108,10 +107,10 @@ class Runner:
         policy_state = self.enhancer.rollout_policy.get_state()
         data = {
             "processed_entities": list(self.processed_entities),
-            "discovered_triplets": self.local_discovered_triplets,
+            "discovered_triplets": self.enhancer.local_discovered_triplets,
             "rollout_policy_state": policy_state,
             "entity_count": len(self.processed_entities),
-            "triplet_count": len(self.local_discovered_triplets)
+            "triplet_count": len(self.enhancer.local_discovered_triplets)
         }
 
         # 创建并启动一个后台线程来执行保存操作
@@ -162,7 +161,6 @@ class Runner:
             rank_logger(self.logger, self.rank)(
                 f"Position-relation pairs: {len(position_relations)}")
 
-            entity_triplets = []
             for pos_rel_idx, (position, relation) in enumerate(position_relations):
                 rank_logger(self.logger, self.rank)(
                     f"\nProcessing pair {pos_rel_idx + 1}/{len(position_relations)}: position={position}, relation={relation}")
@@ -171,10 +169,7 @@ class Runner:
                     entity, position, relation
                 )
 
-                entity_triplets.extend(discovered)
-                self.local_discovered_triplets.extend(discovered)
-                rank_logger(self.logger, self.rank)(
-                    f"Discovered {len(discovered)} valid triplets for {entity}-{position}-{relation}")
+                rank_logger(self.logger, self.rank)(f"Discovered {len(discovered)} valid triplets for {entity}-{position}-{relation}")
 
             # 标记为已处理
             self.processed_entities.add(entity)
@@ -203,20 +198,20 @@ class Runner:
             self.logger.info(f"Rank {self.rank} gathering results...")
             dist.barrier()
             gathered = [None] * self.world_size if self.rank == 0 else None
-            dist.gather_object(self.local_discovered_triplets, gathered, dst=0)
+            # 转换为列表以便传输
+            dist.gather_object(list( self.enhancer.local_discovered_triplets ), gathered, dst=0)
             if self.rank == 0:
                 for triplet_list in gathered:
-                    self.all_discovered_triplets.extend(tuple(triplet_list))
+                    self.all_discovered_triplets.update(triplet_list)
             else:
                 return
         else:
-            self.all_discovered_triplets = self.local_discovered_triplets
+            self.all_discovered_triplets = self.enhancer.local_discovered_triplets
 
         # 保存所有发现的三元组
         output_path = os.path.join(
             self.args.output_folder, "discovered_triplets.txt"
         )
-        self.all_discovered_triplets = set(tuple(triplet) for triplet in self.all_discovered_triplets)
         os.makedirs(self.args.output_folder, exist_ok=True)
         rank_logger(self.logger, self.rank)(
             f"\nSaving {len(self.all_discovered_triplets)} discovered triplets to {output_path}"
