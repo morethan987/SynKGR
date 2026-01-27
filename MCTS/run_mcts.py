@@ -56,7 +56,9 @@ class Runner:
             embedding_path=self.args.embedding_path,
             kge_path=self.args.kge_path,
             dtype=self.args.dtype,
-            device=self.device)
+            device=self.device,
+            without_llm=self.args.without_llm
+        )
 
         self.all_discovered_triplets = set()
         self.processed_entities = set()
@@ -279,6 +281,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--checkpoint_interval", type=int, default=10, help="Save checkpoint every N entities"
+    )
+    parser.add_argument(
+        "--without_llm", action="store_true", help="Run without LLM Discriminator, for ablation study"
     )
     args = parser.parse_args()
 

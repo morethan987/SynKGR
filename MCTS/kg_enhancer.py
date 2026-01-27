@@ -32,7 +32,9 @@ class KGEnhancer:
                  device: str = "cuda",
                  dtype: str = "float32",
                  batch_size: Optional[int] = 16,
-                 no_sample: Optional[bool] = True):
+                 no_sample: Optional[bool] = True,
+                 without_llm: bool = False
+    ):
         """
         初始化知识图谱增强器
 
@@ -50,6 +52,7 @@ class KGEnhancer:
         self.rank = rank
         self.output_folder = output_folder
         self.local_discovered_triplets = set()
+        self.without_llm = without_llm
 
         # 配置参数
         self.budget_per_entity = budget_per_entity
@@ -88,14 +91,17 @@ class KGEnhancer:
 
         # 初始化三元组判别器
         self.logger.info("Initializing triplet discriminator...")
-        self.triplet_discriminator = TriplesDiscriminator(
-            llm_path=llm_path,
-            lora_path=lora_path,
-            embedding_path=embedding_path,
-            device=device,
-            dtype=dtype,
-            batch_size=batch_size
-        )
+        if self.without_llm:
+            self.triplet_discriminator = None
+        else:
+            self.triplet_discriminator = TriplesDiscriminator(
+                llm_path=llm_path,
+                lora_path=lora_path,
+                embedding_path=embedding_path,
+                device=device,
+                dtype=dtype,
+                batch_size=batch_size
+            )
 
         # 初始化MCTS
         self.mcts = MCTS(
@@ -141,7 +147,8 @@ class KGEnhancer:
             triplet_discriminator=self.triplet_discriminator,
             kge_model=self.kge_model,
             leaf_threshold=self.leaf_threshold,
-            parent=None
+            parent=None,
+            without_llm=self.without_llm
         )
 
         # 创建搜索根节点

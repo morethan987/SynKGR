@@ -749,44 +749,39 @@ class Runner(object):
         # 触发计算
         results = self.evaluate('test', -1)
 
-        entity_performance = [0] * 10
-        rr_sum = [0] * 10
-        cnt_sum = [0] * 10
+        area_num = 8
+        entity_performance = [0] * area_num
+        rr_sum = [0] * area_num
+        cnt_sum = [0] * area_num
         entity2degree = self._get_entity2degree()
         for entity in self.entity_mrr_totals.keys():
             deg = entity2degree[entity]
-            if 0 <= deg < 4:
+            if 0 <= deg < 10:
                 rr_sum[0] += self.entity_mrr_totals[entity]
                 cnt_sum[0] += self.entity_count[entity]
-            elif deg <8:
+            elif deg <15:
                 rr_sum[1] += self.entity_mrr_totals[entity]
                 cnt_sum[1] += self.entity_count[entity]
-            elif deg <12:
+            elif deg <20:
                 rr_sum[2] += self.entity_mrr_totals[entity]
                 cnt_sum[2] += self.entity_count[entity]
-            elif deg <16:
+            elif deg <50:
                 rr_sum[3] += self.entity_mrr_totals[entity]
                 cnt_sum[3] += self.entity_count[entity]
-            elif deg <20:
+            elif deg <100:
                 rr_sum[4] += self.entity_mrr_totals[entity]
                 cnt_sum[4] += self.entity_count[entity]
-            elif deg <50:
+            elif deg <200:
                 rr_sum[5] += self.entity_mrr_totals[entity]
                 cnt_sum[5] += self.entity_count[entity]
-            elif deg <100:
+            elif deg <350:
                 rr_sum[6] += self.entity_mrr_totals[entity]
                 cnt_sum[6] += self.entity_count[entity]
-            elif deg <200:
+            else:
                 rr_sum[7] += self.entity_mrr_totals[entity]
                 cnt_sum[7] += self.entity_count[entity]
-            elif deg <350:
-                rr_sum[8] += self.entity_mrr_totals[entity]
-                cnt_sum[8] += self.entity_count[entity]
-            else:
-                rr_sum[9] += self.entity_mrr_totals[entity]
-                cnt_sum[9] += self.entity_count[entity]
 
-        for i in range(10):
+        for i in range(len(entity_performance)):
             entity_performance[i] = rr_sum[i] / cnt_sum[i]
 
         print(f"Entity performance: {entity_performance}")

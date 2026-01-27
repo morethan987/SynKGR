@@ -65,5 +65,6 @@ PID=$!
     echo "loss_restrain_kge训练进程已启动, PID: $PID    日志文件: $LOG_FILE"
     echo "查看日志: tail -f $LOG_FILE"
     echo "停止进程: kill $PID"
+    echo "消融实验：去掉LLM判别器"
     echo "========================================================="
 } | tee -a "$LOG_FILE"

@@ -23,8 +23,8 @@ LOG_FILE="$LOG_DIR/codex_${TIME_STAMP}.log"
 
 
 # 设置 NPU 环境变量
-export CUDA_VISIBLE_DEVICES=0,1,2
-export WORLD_SIZE=3
+export CUDA_VISIBLE_DEVICES=1
+export WORLD_SIZE=1
 export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=29503
 NPROC=$(( $(echo "$CUDA_VISIBLE_DEVICES" | tr -cd ',' | wc -c) + 1 ))
@@ -74,6 +74,7 @@ nohup torchrun \
     --mcts_iterations 10 \
     --budget_per_entity 200 \
     --checkpoint_interval 1 \
+    --without_llm \
     >> $LOG_FILE 2>&1 &
 
 # 获取进程ID

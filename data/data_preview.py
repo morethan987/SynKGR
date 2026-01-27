@@ -1,4 +1,5 @@
 import torch
+import os
 from collections import defaultdict as ddict
 
 def check_enity2embedding(file_path: str):
@@ -154,6 +155,81 @@ def check_in_test(target_data: set, test_data: set):
             count += 1
     print(f"Number of triples in target data that are also in test data: {count} / {len(target_data)}")
 
+def get_entity_degree_distribution(data_folder):
+    """
+    逻辑：
+    1. 从 train.txt 计算实体的度数。
+    2. 提取 test.txt 中出现的所有实体（去重）。
+    3. 统计这些测试集实体在训练集度数区间内的分布情况。
+    """
+    ent_path = os.path.join(data_folder, 'entity2id.txt')
+    train_path = os.path.join(data_folder, 'train.txt')
+    test_path = os.path.join(data_folder, 'test.txt')
+
+    # 1. 获取所有实体 (确保即使训练/测试都没出现的实体也能覆盖，虽然概率极低)
+    all_entities = set()
+    if os.path.exists(ent_path):
+        with open(ent_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            start_line = 1 if len(lines[0].split()) == 1 else 0
+            for line in lines[start_line:]:
+                parts = line.strip().split('\t')
+                if parts: all_entities.add(parts[0])
+
+    # 2. 计算训练集中的实体度数
+    # ent_train_degree: { 实体名: 训练集出现的次数 }
+    ent_train_degree = {ent: 0 for ent in all_entities}
+    if not os.path.exists(train_path):
+        raise FileNotFoundError(f"找不到训练集: {train_path}")
+
+    with open(train_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            parts = line.strip().split('\t')
+            if len(parts) == 3:
+                h, r, t = parts
+                if h in ent_train_degree: ent_train_degree[h] += 1
+                if t in ent_train_degree: ent_train_degree[t] += 1
+
+    # 3. 提取测试集中出现的实体
+    # 注意：这里统计的是测试集中“哪些实体”出现了，不重复计算
+    entities_in_test = set()
+    if not os.path.exists(test_path):
+        raise FileNotFoundError(f"找不到测试集: {test_path}")
+
+    with open(test_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            parts = line.strip().split('\t')
+            if len(parts) == 3:
+                h, r, t = parts
+                entities_in_test.add(h)
+                entities_in_test.add(t)
+
+    # 4. 统计这些“测试集实体”对应的“训练集度数”区间分布
+    thresholds = [4, 8, 12, 16, 20, 50, 100, 200, 350]
+    dist_counts = [0] * 10
+
+    for ent in entities_in_test:
+        # 获取该实体在训练集里的度数
+        deg = ent_train_degree.get(ent, 0)
+
+        placed = False
+        for i, limit in enumerate(thresholds):
+            if deg < limit:
+                dist_counts[i] += 1
+                placed = True
+                break
+        if not placed:
+            dist_counts[9] += 1
+
+    # 打印结果
+    labels = ["[0,4)", "[4,8)", "[8,12)", "[12,16)", "[16,20)", "[20,50)", "[50,100)", "[100,200)", "[200,350)", ">=350"]
+    print(f"--- 统计结果 ({data_folder}) ---")
+    print(f"测试集去重实体总数: {len(entities_in_test)}")
+    for label, count in zip(labels, dist_counts):
+        print(f"训练集度数在 {label} 范围内的测试实体数: {count}")
+
+    return dist_counts
+
 if __name__ == "__main__":
     # acko && cdko && python data/data_preview.py
 
@@ -163,18 +239,18 @@ if __name__ == "__main__":
     # folder = "data/FB15k-237N"
     # cleanup_entity2name(folder)
 
-    file1 = "data/FB15k-237N/test.txt"
-    file2 = "data/FB15k-237N/valid.txt"
-    file3 = "data/FB15k-237N/auxiliary_triples.txt"
-    file4 = "data/FB15k-237N/auxiliary_triples_old.txt"
-    fb_merged_file = "data/FB15k-237N/merged_triples.txt"
+    # file1 = "data/FB15k-237N/test.txt"
+    # file2 = "data/FB15k-237N/valid.txt"
+    # file3 = "data/FB15k-237N/auxiliary_triples.txt"
+    # file4 = "data/FB15k-237N/auxiliary_triples_old.txt"
+    # fb_merged_file = "data/FB15k-237N/merged_triples.txt"
 
-    file5 = "data/CoDEx-S/test.txt"
-    file6 = "data/CoDEx-S/valid.txt"
-    file7 = "data/CoDEx-S/auxiliary_triples.txt"
-    file8 = "data/CoDEx-S/auxiliary_triples_old.txt"
-    codex_merged_file = "data/CoDEx-S/merged_auxiliary_triples.txt"
-    kg_similarity(file5, file7)
+    # file5 = "data/CoDEx-S/test.txt"
+    # file6 = "data/CoDEx-S/valid.txt"
+    # file7 = "data/CoDEx-S/auxiliary_triples.txt"
+    # file8 = "data/CoDEx-S/auxiliary_triples_old.txt"
+    # codex_merged_file = "data/CoDEx-S/merged_auxiliary_triples.txt"
+    # kg_similarity(file5, file7)
 
     # head = "/m/0m0bj"
     # tail = "/m/01tzfz"
@@ -183,3 +259,6 @@ if __name__ == "__main__":
     # entity2name = get_entity2name("data/FB15k-237N/entity2name.txt")
     # for triple in relative_tiples:
     #     print(f"{entity2name.get(triple[0],'N/A')} -- {triple[1]} --> {entity2name.get(triple[2],'N/A')}")
+
+    counts = get_entity_degree_distribution('FB15k-237N')
+    print("各区间实体数量:", counts)

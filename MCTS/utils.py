@@ -62,27 +62,30 @@ def shard_indices(total_size: int, rank: int, world_size: int):
     return list(range(start_idx, end_idx))
 
 
-def get_device(local_rank: int):
+def get_device(local_rank: int = 0):
+    """
+    返回当前进程应使用的 torch.device 及 device_type。
+
+    约定：
+    - local_rank 永远是「可见设备空间」内的索引
+    - CUDA_VISIBLE_DEVICES / NPU_VISIBLE_DEVICES 只影响可见性，不做手动映射
+    """
+
     if is_distributed():
-        if torch.cuda.is_available():
-            device = torch.device(f'cuda:{local_rank}')
-            device_type = 'cuda'
-        elif torch.npu.is_available():
-            device = torch.device(f'npu:{local_rank}')
-            device_type = 'npu'
-        else:
-            device = torch.device('cpu')
-            device_type = 'cpu'
+        rank = local_rank
     else:
-        if torch.cuda.is_available():
-            device = torch.device('cuda:0')
-            device_type = 'cuda'
-        elif torch.npu.is_available():
-            device = torch.device('npu:0')
-            device_type = 'npu'
-        else:
-            device = torch.device('cpu')
-            device_type = 'cpu'
+        rank = 0
+
+    if torch.cuda.is_available():
+        device = torch.device(f"cuda:{rank}")
+        device_type = "cuda"
+    elif hasattr(torch, "npu") and torch.npu.is_available():
+        device = torch.device(f"npu:{rank}")
+        device_type = "npu"
+    else:
+        device = torch.device("cpu")
+        device_type = "cpu"
+
     return device, device_type
 
 
