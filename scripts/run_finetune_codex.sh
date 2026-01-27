@@ -52,7 +52,7 @@ nohup torchrun \
     --nproc_per_node=$NPROC \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
-    finetune_kopa.py \
+    LLM_Discriminator/finetune.py \
     --base_model $MODEL_PATH \
     --data_path $DATA_PATH \
     --output_dir $OUTPUT_DIR \

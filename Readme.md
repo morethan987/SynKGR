@@ -1,4 +1,4 @@
-# KoGReD
+# CoRLM
 
 ## Dependencies
 
@@ -24,3 +24,4 @@
 ## Other
 
 1. In the `data_preview.py` are many useful tools you may need.
+
