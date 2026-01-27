@@ -49,11 +49,11 @@ degree_of_entities = [
 # 样本数量
 samples = [4163, 2426, 1763, 2514, 977, 921, 741, 2947]
 
-# StructKGC MRR
-structkgc_mrr = [0.31, 0.20, 0.19, 0.38, 0.46, 0.68, 0.53, 0.71]
-
 # SynKGR MRR
-synkgr_mrr = [0.30, 0.17, 0.15, 0.24, 0.42, 0.47, 0.48, 0.61]
+synkgr_mrr = [0.31, 0.20, 0.19, 0.38, 0.46, 0.68, 0.53, 0.71]
+
+# StructKGC MRR
+structkgc_mrr = [0.30, 0.17, 0.15, 0.24, 0.42, 0.47, 0.48, 0.61]
 
 # --- 3. 绘图 ---
 fig, ax1 = plt.subplots(figsize=(7, 6))
@@ -74,12 +74,12 @@ ax1.patch.set_visible(False)
 
 # --- 数值标签 (微调偏移量以防重叠) ---
 for x, y in zip(degree_of_entities, structkgc_mrr):
-    # 蓝色向上偏移
-    ax1.text(x, y + 0.02, f'{y:.2f}', ha='center', va='bottom', color='tab:blue', fontsize=11, zorder=11)
+    # 蓝色向下偏移
+    ax1.text(x, y - 0.04, f'{y:.2f}', ha='center', va='bottom', color='tab:blue', fontsize=11, zorder=11)
 
 for x, y in zip(degree_of_entities, synkgr_mrr):
-    # 红色向下偏移 (尤其是第一个点 0.30 不再遮挡 0.31)
-    ax1.text(x, y - 0.02, f'{y:.2f}', ha='center', va='top', color='tab:red', fontsize=11, zorder=11)
+    # 红色向上偏移
+    ax1.text(x, y + 0.04, f'{y:.2f}', ha='center', va='top', color='tab:red', fontsize=11, zorder=11)
 
 # 设置标签和范围
 ax1.set_xlabel('实体度数 (Entity Degree)', fontsize=14)
