@@ -1,7 +1,7 @@
 [project]
 name = "synkgr"
 version = "0.1.0"
-description = "SynKGR: Synthetic Knowledge Graph Reasoning with Discrimination"
+description = "SynKGR: Synergizing Large Language Models and Monte Carlo Tree Search for Knowledge Graph Reasoning"
 readme = "README.md"
 requires-python = "==3.10.*"
 dependencies = [
