@@ -12,3 +12,12 @@ merged_auxiliary_triples.txt
 true_triplets.txt
 *.otf
 case_search/
+
+# data for openke
+openke/FB15k-237N/
+openke/CoDEx-S/
+
+# KGE training outputs
+LLM_Discriminator/train_kge_output/
+
+kg-bert/

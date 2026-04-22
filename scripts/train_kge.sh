@@ -1,16 +1,54 @@
 #!/bin/bash
 # KGE模型训练启动脚本
-# 使用方法: cdko && acko && bash scripts/train_kge.sh
+# 使用方法:
+#   bash scripts/train_kge.sh                        # 默认使用 FB15k-237N
+#   bash scripts/train_kge.sh FB15k-237N             # 显式指定 FB15k-237N
+#   bash scripts/train_kge.sh CoDEx-S                # 使用 CoDEx-S 数据集
 
 # NPU环境配置
 export NPU_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=0
+
+# --- 数据集选择 ---
+DATASET="${1:-FB15k-237N}"
+
+case "$DATASET" in
+    FB15k-237N)
+        RAW_DATA_PATH='data/FB15k-237N'
+        ;;
+    CoDEx-S)
+        RAW_DATA_PATH='data/CoDEx-S'
+        ;;
+    *)
+        echo "错误: 不支持的数据集 '$DATASET'"
+        echo "支持的数据集: FB15k-237N, CoDEx-S"
+        exit 1
+        ;;
+esac
 
 # --- 路径配置 ---
-DATA_PATH='data/FB15k-237N'
-OUTPUT_DIR='LLM_Discriminator/train_kge_output'
-LOG_DIR='LLM_Discriminator/logs'
+DATA_PATH="openke/${DATASET}"
+OUTPUT_DIR="LLM_Discriminator/train_kge_output/${DATASET}"
+LOG_DIR="LLM_Discriminator/logs"
+
+# --- 数据预处理 ---
+# 检查是否需要将原始数据转换为 OpenKE 格式
+if [ ! -d "$DATA_PATH" ] || [ ! -f "${DATA_PATH}/train2id.txt" ]; then
+    echo "OpenKE格式数据不存在，开始预处理..."
+    if [ ! -d "$RAW_DATA_PATH" ]; then
+        echo "错误: 原始数据路径不存在: $RAW_DATA_PATH"
+        exit 1
+    fi
+    python scripts/preprocess_for_openke.py --src_dir "$RAW_DATA_PATH" --dst_dir "$DATA_PATH"
+    if [ $? -ne 0 ]; then
+        echo "错误: 数据预处理失败"
+        exit 1
+    fi
+    echo "数据预处理完成。"
+fi
+
 TIME_STAMP=$(date +%Y%m%d_%H%M%S)
-LOG_FILE="$LOG_DIR/train_kge_RotatE_${TIME_STAMP}.log"
+LOG_FILE="$LOG_DIR/train_kge_RotatE_${DATASET}_${TIME_STAMP}.log"
 
 # --- 超参数配置 ---
 MODEL_NAME="RotatE"
@@ -29,6 +67,13 @@ EPOCHS=3000           # 训练轮数, 可根据收敛情况调整
 # 检查路径是否存在
 if [ ! -d "$DATA_PATH" ]; then
     echo "错误: 数据路径不存在: $DATA_PATH"
+    echo "请先运行: python scripts/preprocess_for_openke.py"
+    exit 1
+fi
+
+if [ ! -f "${DATA_PATH}/train2id.txt" ]; then
+    echo "错误: 未找到 OpenKE 格式数据 (train2id.txt)"
+    echo "请先运行: python scripts/preprocess_for_openke.py"
     exit 1
 fi
 
@@ -38,10 +83,11 @@ mkdir -p "$OUTPUT_DIR"
 
 # 显示配置信息
 echo -e "\n=== KGE模型训练配置信息 ==="
-echo "模型: $MODEL_NAME"
-echo "数据路径: $DATA_PATH"
-echo "输出目录: $OUTPUT_DIR"
-echo "日志文件: $LOG_FILE"
+echo "数据集:      $DATASET"
+echo "模型:        $MODEL_NAME"
+echo "数据路径:    $DATA_PATH"
+echo "输出目录:    $OUTPUT_DIR"
+echo "日志文件:    $LOG_FILE"
 echo "---------------------------------"
 echo "维度 (Dimension): $DIMENSION"
 echo "批次大小 (Batch Size): $BATCH_SIZE"
@@ -60,7 +106,8 @@ if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
 fi
 
 # 启动训练脚本
-nohup python LLM_Discriminator/train_kge.py \
+# -u 参数实时刷新日志缓冲区
+nohup python -u LLM_Discriminator/train_kge.py \
     --model "$MODEL_NAME" \
     --in_path "$DATA_PATH" \
     --out_path "$OUTPUT_DIR" \
@@ -80,6 +127,7 @@ PID=$!
 {
     echo "========================================================="
     echo "KGE训练进程已启动!"
+    echo "数据集: $DATASET"
     echo "进程ID (PID): $PID"
     echo "日志文件: $LOG_FILE"
     echo "查看日志: tail -f $LOG_FILE"
