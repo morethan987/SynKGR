@@ -1,8 +1,9 @@
 #!/bin/bash
 # 微调启动脚本
-# 使用方法: cdko && acko && bash scripts/run_embedding.sh
+# 使用方法: bash scripts/run_embedding.sh
 
 export HF_HUB_OFFLINE=1
+export CUDA_VISIBLE_DEVICES=2
 
 # 路径设置
 MODEL_PATH='all-MiniLM-L6-v2'
@@ -34,7 +35,6 @@ fi
 nohup python data/run_embedding.py \
     --dataset $DATA_PATH \
     --embedding_dir $MODEL_PATH \
-    --device cuda:2 \
     --batch_size 16 \
     --output_dir $OUTPUT_DIR \
     >> $LOG_FILE 2>&1 &
