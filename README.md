@@ -1,4 +1,4 @@
-# SynKGR: Synthetic Knowledge Graph Reasoning with Discrimination
+# SynKGR: Synergizing Large Language Models and Monte Carlo Tree Search for Knowledge Graph Reasoning
 
 SynKGR 是一个基于 **蒙特卡洛树搜索（MCTS）+ 大语言模型判别器** 的知识图谱增强与推理框架。其核心思路是：
 
