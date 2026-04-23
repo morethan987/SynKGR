@@ -21,6 +21,7 @@ case "$DATASET" in
         NUM_EPOCHS=5.0
         WARMUP_PROPORTION=0.1
         GRADIENT_ACCUMULATION_STEPS=1
+        DO_LOWER_CASE='--do_lower_case'
         ;;
     FB15k-237N)
         BERT_MODEL='bert-base-cased'
@@ -31,6 +32,7 @@ case "$DATASET" in
         NUM_EPOCHS=3.0
         WARMUP_PROPORTION=0.1
         GRADIENT_ACCUMULATION_STEPS=1
+        DO_LOWER_CASE=''
         ;;
     *)
         echo "错误: 不支持的数据集 '$DATASET'"
@@ -91,6 +93,7 @@ nohup python -u kg-bert/run_bert_triple_classifier.py \
     --do_eval \
     --do_predict \
     --data_dir "$DATA_DIR" \
+    $DO_LOWER_CASE \
     --bert_model "$BERT_MODEL" \
     --max_seq_length $MAX_SEQ_LENGTH \
     --train_batch_size $TRAIN_BATCH_SIZE \

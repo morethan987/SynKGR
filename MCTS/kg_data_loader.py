@@ -42,6 +42,9 @@ class KGDataLoader:
         # 加载ID到实体映射
         self.id2entity = {v: k for k, v in self.entity2id.items()}
 
+        # 加载ID到关系映射
+        self.id2relation = {v: k for k, v in self.relation2id.items()}
+
         # 加载实体到嵌入映射
         self.entity2embedding = torch.load(entity2embedding_path, map_location='cpu')
         self.logger.debug(f"Loaded {len( self.entity2embedding.keys() )} entity embeddings")

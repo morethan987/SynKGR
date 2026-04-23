@@ -57,7 +57,10 @@ class Runner:
             kge_path=self.args.kge_path,
             dtype=self.args.dtype,
             device=self.device,
-            without_llm=self.args.without_llm
+            discriminator_type=self.args.discriminator_type,
+            kgbert_model_dir=self.args.kgbert_model_dir,
+            kgbert_data_dir=self.args.kgbert_data_dir,
+            kge_discriminator_path=self.args.kge_discriminator_path,
         )
 
         self.all_discovered_triplets = set()
@@ -283,7 +286,21 @@ if __name__ == "__main__":
         "--checkpoint_interval", type=int, default=10, help="Save checkpoint every N entities"
     )
     parser.add_argument(
-        "--without_llm", action="store_true", help="Run without LLM Discriminator, for ablation study"
+        "--discriminator_type", type=str, default="llm",
+        choices=["llm", "kgbert", "kge", "random"],
+        help="Discriminator type: 'llm' (default), 'kgbert', 'kge', or 'random'"
+    )
+    parser.add_argument(
+        "--kgbert_model_dir", type=str, default=None,
+        help="Path to trained KG-BERT model dir (required when --discriminator_type kgbert)"
+    )
+    parser.add_argument(
+        "--kgbert_data_dir", type=str, default=None,
+        help="Path to KG-BERT data dir with entity2text.txt, relation2text.txt (required when --discriminator_type kgbert)"
+    )
+    parser.add_argument(
+        "--kge_discriminator_path", type=str, default=None,
+        help="Path to trained KGE model checkpoint for use as discriminator (required when --discriminator_type kge)"
     )
     args = parser.parse_args()
 

@@ -5,7 +5,7 @@ from model_calls import OpenKEClient
 from mcts_tree import MCTS
 from node import SearchRootNode, Context
 from rollout_policy import UCB1Policy, LinUCBRolloutPolicy, MomentumRewardPolicy
-from LLM_Discriminator.discriminator import TriplesDiscriminator
+from base_discriminator import BaseDiscriminator
 from setup_logger import setup_logger, rank_logger
 
 
@@ -31,9 +31,12 @@ class KGEnhancer:
                  embedding_path: str = None,
                  device: str = "cuda",
                  dtype: str = "float32",
-                 batch_size: Optional[int] = 16,
-                 no_sample: Optional[bool] = True,
-                 without_llm: bool = False
+                 batch_size: int = 16,
+                 no_sample: bool = True,
+                 discriminator_type: str = "llm",
+                 kgbert_model_dir: str = None,
+                 kgbert_data_dir: str = None,
+                 kge_discriminator_path: str = None,
     ):
         """
         初始化知识图谱增强器
@@ -52,7 +55,6 @@ class KGEnhancer:
         self.rank = rank
         self.output_folder = output_folder
         self.local_discovered_triplets = set()
-        self.without_llm = without_llm
 
         # 配置参数
         self.budget_per_entity = budget_per_entity
@@ -90,18 +92,19 @@ class KGEnhancer:
         )
 
         # 初始化三元组判别器
-        self.logger.info("Initializing triplet discriminator...")
-        if self.without_llm:
-            self.triplet_discriminator = None
-        else:
-            self.triplet_discriminator = TriplesDiscriminator(
-                llm_path=llm_path,
-                lora_path=lora_path,
-                embedding_path=embedding_path,
-                device=device,
-                dtype=dtype,
-                batch_size=batch_size
-            )
+        self.logger.info(f"Initializing triplet discriminator (type={discriminator_type})...")
+        self.triplet_discriminator = self._create_discriminator(
+            discriminator_type=discriminator_type,
+            llm_path=llm_path,
+            lora_path=lora_path,
+            embedding_path=embedding_path,
+            device=device,
+            dtype=dtype,
+            batch_size=batch_size,
+            kgbert_model_dir=kgbert_model_dir,
+            kgbert_data_dir=kgbert_data_dir,
+            kge_discriminator_path=kge_discriminator_path,
+        )
 
         # 初始化MCTS
         self.mcts = MCTS(
@@ -113,6 +116,60 @@ class KGEnhancer:
         self.all_entities = set(self.data_loader.entity2name.keys())
 
         self.logger.info("KGEnhancer initialized successfully")
+
+    def _create_discriminator(
+        self,
+        discriminator_type: str,
+        llm_path: str,
+        lora_path: str,
+        embedding_path: str,
+        device: str,
+        dtype: str,
+        batch_size: int,
+        kgbert_model_dir: str = None,
+        kgbert_data_dir: str = None,
+        kge_discriminator_path: str = None,
+    ) -> BaseDiscriminator:
+        """根据类型创建判别器实例"""
+        if discriminator_type == "llm":
+            from LLM_Discriminator.discriminator import TriplesDiscriminator
+            return TriplesDiscriminator(
+                llm_path=llm_path,
+                lora_path=lora_path,
+                embedding_path=embedding_path,
+                device=device,
+                dtype=dtype,
+                batch_size=batch_size
+            )
+        elif discriminator_type == "kgbert":
+            from kgbert_discriminator import KGBERTDiscriminator
+            discriminator = KGBERTDiscriminator(
+                model_dir=kgbert_model_dir,
+                data_dir=kgbert_data_dir,
+                batch_size=batch_size,
+                device=device,
+            )
+            discriminator.set_id_mappings(
+                id2entity=self.data_loader.id2entity,
+                id2relation=self.data_loader.id2relation,
+            )
+            return discriminator
+        elif discriminator_type == "kge":
+            from kge_discriminator import KGEDiscriminator
+            return KGEDiscriminator(
+                model_path=kge_discriminator_path,
+                model_name="RotatE",
+                device=device,
+                batch_size=batch_size,
+            )
+        elif discriminator_type == "random":
+            from random_discriminator import RandomDiscriminator
+            return RandomDiscriminator(positive_rate=0.5)
+        else:
+            raise ValueError(
+                f"Unknown discriminator type: '{discriminator_type}'. "
+                f"Supported: 'llm', 'kgbert', 'kge', 'random'"
+            )
 
     def enhance_entity_relation(self, sparse_entity: str, position: str, relation: str) -> Set[Tuple[str, str, str]]:
         """
@@ -147,8 +204,7 @@ class KGEnhancer:
             triplet_discriminator=self.triplet_discriminator,
             kge_model=self.kge_model,
             leaf_threshold=self.leaf_threshold,
-            parent=None,
-            without_llm=self.without_llm
+            parent=None
         )
 
         # 创建搜索根节点

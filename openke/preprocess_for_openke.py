@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 将 data/FB15k-237N/ 中的原始数据转换为 OpenKE 所需格式，输出到 openke/FB15k-237N/。
 

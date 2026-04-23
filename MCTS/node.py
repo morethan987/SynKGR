@@ -14,7 +14,7 @@ import re
 from collections import Counter
 
 from kg_data_loader import KGDataLoader
-from LLM_Discriminator.discriminator import TriplesDiscriminator
+from base_discriminator import BaseDiscriminator
 from model_calls import OpenKEClient
 from setup_logger import setup_logger, rank_logger
 
@@ -28,11 +28,10 @@ class Context:
     unfiltered_entities: Set[str]
     output_folder: str
     data_loader: KGDataLoader
-    triplet_discriminator: TriplesDiscriminator
+    triplet_discriminator: BaseDiscriminator
     kge_model: OpenKEClient
     leaf_threshold: int
     parent: Optional['SearchNode'] = None
-    without_llm: bool = False
 
 
 class SearchNode(ABC):
@@ -66,7 +65,6 @@ class SearchNode(ABC):
         self.parent = context.parent
         self.children = None
         self.logger = setup_logger(f"{self.__class__.__name__}")
-        self.without_llm = context.without_llm
 
 
     @abstractmethod
@@ -146,27 +144,12 @@ class SearchNode(ABC):
 
         # 如果有需要评估的三元组，则使用批量分类器进行判断
         results = []
-        if self.without_llm:
-            # 如果不使用LLM，则随机标记部分三元组为正确
-            for triplet in triplets_to_evaluate:
-                if random.random() < 0.5:  # 50%概率标记为正确
-                    results.append({
-                        "triple_str": "",
-                        "is_correct": True})
-                else:
-                    results.append({
-                        "triple_str": "",
-                        "is_correct": False})
-        else:
-            if triplets_to_evaluate:
-                # 预处理所有三元组为分类器输入格式
-                discriminator_inputs = [
-                    self._preprocess_triplet(triplet)
-                    for triplet in triplets_to_evaluate
-                ]
-
-                # 批量判断
-                results = self.triplet_discriminator.judge_batch(discriminator_inputs)
+        if triplets_to_evaluate:
+            discriminator_inputs = [
+                self._preprocess_triplet(triplet)
+                for triplet in triplets_to_evaluate
+            ]
+            results = self.triplet_discriminator.judge_batch(discriminator_inputs)
 
         # 收集正确的三元组
         for i, (triplet, result) in enumerate(zip(triplets_to_evaluate, results)):
@@ -195,8 +178,7 @@ class SearchNode(ABC):
             triplet_discriminator=self.triplet_discriminator,
             kge_model=self.kge_model,
             leaf_threshold=self.leaf_threshold,
-            parent=self,
-            without_llm=self.without_llm
+            parent=self
         )
 
     def _preprocess_triplet(self, triplet: Tuple[str, str, str]) -> dict:

@@ -15,10 +15,12 @@ case "$DATASET" in
     CoDEx-S)
         MAX_SEQ_LENGTH=100
         EVAL_BATCH_SIZE=256
+        DO_LOWER_CASE='--do_lower_case'
         ;;
     FB15k-237N)
         MAX_SEQ_LENGTH=200
         EVAL_BATCH_SIZE=512
+        DO_LOWER_CASE=''
         ;;
     *)
         echo "错误: 不支持的数据集 '$DATASET'"
@@ -67,6 +69,7 @@ python -u kg-bert/run_bert_triple_classifier.py \
     --do_eval \
     --do_predict \
     --data_dir "$DATA_DIR" \
+    $DO_LOWER_CASE \
     --bert_model "$MODEL_DIR" \
     --max_seq_length $MAX_SEQ_LENGTH \
     --eval_batch_size $EVAL_BATCH_SIZE \

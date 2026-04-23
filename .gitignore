@@ -2,7 +2,6 @@ __pycache__/
 *.pth
 TODO.md
 *.back
-output/
 *.log
 release/
 auxiliary_triples.txt
@@ -23,4 +22,7 @@ openke/FB15k-237N/
 openke/CoDEx-S/
 
 # KGE training outputs
-LLM_Discriminator/train_kge_output/
+openke/output/
+
+# KG-BERT outputs
+kg-bert/output/

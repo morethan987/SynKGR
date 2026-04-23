@@ -28,8 +28,8 @@ esac
 
 # --- 路径配置 ---
 DATA_PATH="openke/${DATASET}"
-OUTPUT_DIR="LLM_Discriminator/train_kge_output/${DATASET}"
-LOG_DIR="LLM_Discriminator/logs"
+OUTPUT_DIR="openke/output/${DATASET}"
+LOG_DIR="openke/logs"
 
 # --- 数据预处理 ---
 # 检查是否需要将原始数据转换为 OpenKE 格式
@@ -39,7 +39,7 @@ if [ ! -d "$DATA_PATH" ] || [ ! -f "${DATA_PATH}/train2id.txt" ]; then
         echo "错误: 原始数据路径不存在: $RAW_DATA_PATH"
         exit 1
     fi
-    python scripts/preprocess_for_openke.py --src_dir "$RAW_DATA_PATH" --dst_dir "$DATA_PATH"
+    python openke/preprocess_for_openke.py --src_dir "$RAW_DATA_PATH" --dst_dir "$DATA_PATH"
     if [ $? -ne 0 ]; then
         echo "错误: 数据预处理失败"
         exit 1
@@ -67,13 +67,13 @@ EPOCHS=3000           # 训练轮数, 可根据收敛情况调整
 # 检查路径是否存在
 if [ ! -d "$DATA_PATH" ]; then
     echo "错误: 数据路径不存在: $DATA_PATH"
-    echo "请先运行: python scripts/preprocess_for_openke.py"
+    echo "请先运行: python openke/preprocess_for_openke.py"
     exit 1
 fi
 
 if [ ! -f "${DATA_PATH}/train2id.txt" ]; then
     echo "错误: 未找到 OpenKE 格式数据 (train2id.txt)"
-    echo "请先运行: python scripts/preprocess_for_openke.py"
+    echo "请先运行: python openke/preprocess_for_openke.py"
     exit 1
 fi
 

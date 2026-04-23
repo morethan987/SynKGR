@@ -3,10 +3,11 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import List, Dict, Any
 
+from MCTS.base_discriminator import BaseDiscriminator
 from MCTS.prompts import ALPACA_PROMPT
 
 
-class TriplesDiscriminator:
+class TriplesDiscriminator(BaseDiscriminator):
     def __init__(
         self,
         llm_path: str,
