@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import Optional, List, Union, Tuple
+from typing import Optional, List, Union, Tuple, Any
 
 from transformers import LlamaForCausalLM
 from process_kge import load_pretrain_kge
@@ -9,7 +9,7 @@ from process_kge import load_pretrain_kge
 class KoPA(nn.Module):
     def __init__(
         self,
-        model: LlamaForCausalLM
+        model: Any
     ) -> None:
         super(KoPA, self).__init__()
         self.llama_model = model
@@ -23,7 +23,7 @@ class KoPA(nn.Module):
     
     def forward(
         self,
-        input_ids: torch.LongTensor = None,
+        input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
@@ -33,16 +33,21 @@ class KoPA(nn.Module):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        embedding_ids: torch.LongTensor = None
+        embedding_ids: Optional[torch.LongTensor] = None
     ):
+        assert embedding_ids is not None, "embedding_ids is required"
+        assert input_ids is not None, "input_ids is required"
+        assert attention_mask is not None, "attention_mask is required"
+        assert labels is not None, "labels is required"
         kg_embeds = self.embeddings(embedding_ids)
         batch_size, seq_len, _ = kg_embeds.shape
         token_embeds = self.llama_model.model.model.embed_tokens(input_ids)
         input_embeds = torch.cat((kg_embeds, token_embeds), dim=1)
-        prefix_mask = torch.ones((batch_size, seq_len))
-        prefix_labels = torch.full((batch_size, seq_len), fill_value=-100, dtype=torch.long)
-        new_attention_mask = torch.cat((prefix_mask.cuda(), attention_mask), dim=-1)
-        new_labels = torch.cat((prefix_labels.cuda(), labels), dim=-1)
+        device = token_embeds.device
+        prefix_mask = torch.ones((batch_size, seq_len), device=device)
+        prefix_labels = torch.full((batch_size, seq_len), fill_value=-100, dtype=torch.long, device=device)
+        new_attention_mask = torch.cat((prefix_mask, attention_mask), dim=-1)
+        new_labels = torch.cat((prefix_labels, labels), dim=-1)
         return self.llama_model(
             input_ids=None,
             attention_mask=new_attention_mask,
@@ -60,10 +65,11 @@ class KoPA(nn.Module):
 class KoPAWithAdapter(nn.Module):
     def __init__(
         self,
-        model: LlamaForCausalLM,
+        model: Any,
         num_prefix: int,
         kge_model: str = "data/UMLS-rotate.pth",
-        pretrain_emb_path = None
+        pretrain_emb_path = None,
+        llm_dim: int = 4096
     ) -> None:
         super(KoPAWithAdapter, self).__init__()
         self.llama_model = model
@@ -73,7 +79,7 @@ class KoPAWithAdapter(nn.Module):
             self.embeddings = PretrainKGEmbedding(
                 pretrain_ent_embs=ent_embs,
                 pretrain_rel_embs=rel_embs,
-                dim_llm=4096,
+                dim_llm=llm_dim,
                 num_prefix=num_prefix
             )
         else:
@@ -82,7 +88,7 @@ class KoPAWithAdapter(nn.Module):
     
     def forward(
         self,
-        input_ids: torch.LongTensor = None,
+        input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
@@ -92,17 +98,21 @@ class KoPAWithAdapter(nn.Module):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        embedding_ids: torch.LongTensor = None
+        embedding_ids: Optional[torch.LongTensor] = None
     ):
+        assert embedding_ids is not None, "embedding_ids is required"
+        assert input_ids is not None, "input_ids is required"
+        assert attention_mask is not None, "attention_mask is required"
+        assert labels is not None, "labels is required"
         kg_embeds = self.embeddings(embedding_ids)
-        # print(kg_embeds.shape)
         batch_size, seq_len, _ = kg_embeds.shape
         token_embeds = self.llama_model.model.model.embed_tokens(input_ids)
         input_embeds = torch.cat((kg_embeds, token_embeds), dim=1)
-        prefix_mask = torch.ones((batch_size, seq_len))
-        prefix_labels = torch.full((batch_size, seq_len), fill_value=-100, dtype=torch.long)
-        new_attention_mask = torch.cat((prefix_mask.cuda(), attention_mask), dim=-1)
-        new_labels = torch.cat((prefix_labels.cuda(), labels), dim=-1)
+        device = token_embeds.device
+        prefix_mask = torch.ones((batch_size, seq_len), device=device)
+        prefix_labels = torch.full((batch_size, seq_len), fill_value=-100, dtype=torch.long, device=device)
+        new_attention_mask = torch.cat((prefix_mask, attention_mask), dim=-1)
+        new_labels = torch.cat((prefix_labels, labels), dim=-1)
         return self.llama_model(
             input_ids=None,
             attention_mask=new_attention_mask,
@@ -178,4 +188,3 @@ class PretrainKGEmbedding(nn.Module):
             prefix = self.adapter(emb).reshape(-1, self.num_prefix, self.llm_dim)
             # print(prefix.shape)
             return prefix
-

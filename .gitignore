@@ -26,3 +26,6 @@ openke/output/
 
 # KG-BERT outputs
 kg-bert/output/
+
+# LLM discriminator outputs
+LLM_Discriminator/output/

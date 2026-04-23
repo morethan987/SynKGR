@@ -1,10 +1,8 @@
 import os
 import sys
-from typing import List
+from typing import List, Optional
 import fire
 import torch
-import torch_npu
-from torch_npu.contrib import transfer_to_npu
 import transformers
 from datasets import load_dataset
 from kopa import KoPAWithAdapter
@@ -15,8 +13,6 @@ from peft import (
     set_peft_model_state_dict,
 )
 from transformers import AutoModelForCausalLM, AutoTokenizer
-# from transformers import LlamaForCausalLM, LlamaTokenizer
-
 
 def train(
     # model/data params
@@ -35,7 +31,7 @@ def train(
     lora_r: int = 16,
     lora_alpha: int = 16,
     lora_dropout: float = 0.05,
-    lora_target_modules: List[str] = [
+    lora_target_modules: List[str] =[
         "q_proj",
         "v_proj",
     ],
@@ -43,14 +39,9 @@ def train(
     # llm hyperparams
     train_on_inputs: bool = True,  # if False, masks out inputs in loss
     add_eos_token: bool = False,
-    group_by_length: bool = False,  # faster, but produces an odd training loss curve
+    train_sampling_strategy: str = "random",
     llm_dim: int = 4096,
-    # wandb params
-    wandb_project: str = "",
-    wandb_run_name: str = "",
-    wandb_watch: str = "",  # options: false | gradients | all
-    wandb_log_model: str = "",  # options: false | true
-    resume_from_checkpoint: str = None,
+    resume_from_checkpoint: Optional[str] = None,
     prompt_template_name: str = "alpaca",
     kge_model: str = "data/CoDeX-S.pth"
 ):
@@ -73,11 +64,7 @@ def train(
             f"lora_target_modules: {lora_target_modules}\n"
             f"train_on_inputs: {train_on_inputs}\n"
             f"add_eos_token: {add_eos_token}\n"
-            f"group_by_length: {group_by_length}\n"
-            f"wandb_project: {wandb_project}\n"
-            f"wandb_run_name: {wandb_run_name}\n"
-            f"wandb_watch: {wandb_watch}\n"
-            f"wandb_log_model: {wandb_log_model}\n"
+            f"train_sampling_strategy: {train_sampling_strategy}\n"
             f"resume_from_checkpoint: {resume_from_checkpoint or False}\n"
             f"prompt template: {prompt_template_name}\n"
             f"kge model: {kge_model}\n"
@@ -94,21 +81,17 @@ def train(
 
     model = AutoModelForCausalLM.from_pretrained(
         base_model,
-        torch_dtype=torch.bfloat16,
-        device_map=f'npu:{local_rank}',
+        torch_dtype=torch.float16,
+        device_map={"": local_rank},
     )
-    print(f"Successfully load model on npu:{local_rank}")
+    print(f"Successfully load model on cuda:{local_rank}")
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
 
-    tokenizer.pad_token_id = (
-        0  # unk. we want this to be different from the eos token
-    )
+    tokenizer.pad_token_id = 0  # unk. we want this to be different from the eos token
     tokenizer.padding_side = "left"  # Allow batched inference
 
     def tokenize(prompt, add_eos_token=True):
-        # there's probably a way to do this with the tokenizer settings
-        # but again, gotta move fast
         result = tokenizer(
             prompt,
             truncation=True,
@@ -125,7 +108,6 @@ def train(
             result["attention_mask"].append(1)
 
         result["labels"] = result["input_ids"].copy()
-
         return result
 
     def generate_and_tokenize_prompt(data_point):
@@ -147,7 +129,7 @@ def train(
             if add_eos_token:
                 user_prompt_len -= 1
 
-            tokenized_full_prompt["labels"] = [-100] * user_prompt_len + tokenized_full_prompt["labels"][user_prompt_len:]
+            tokenized_full_prompt["labels"] =[-100] * user_prompt_len + tokenized_full_prompt["labels"][user_prompt_len:]
         return tokenized_full_prompt
 
     config = LoraConfig(
@@ -161,9 +143,9 @@ def train(
     model = get_peft_model(model, config)
     slama_model = KoPAWithAdapter(
         model=model,
-        llm_dim=llm_dim,
         num_prefix=num_prefix,
-        kge_model=kge_model)
+        kge_model=kge_model,
+        llm_dim=llm_dim)
 
     if data_path.endswith(".json") or data_path.endswith(".jsonl"):
         data = load_dataset("json", data_files=data_path)
@@ -171,18 +153,10 @@ def train(
         data = load_dataset(data_path)
 
     if resume_from_checkpoint:
-        # Check the available weights and load them
-        checkpoint_name = os.path.join(
-            resume_from_checkpoint, "pytorch_model.bin"
-        )  # Full checkpoint
+        checkpoint_name = os.path.join(resume_from_checkpoint, "pytorch_model.bin")
         if not os.path.exists(checkpoint_name):
-            checkpoint_name = os.path.join(
-                resume_from_checkpoint, "adapter_model.bin"
-            )  # only LoRA model - LoRA config above has to fit
-            resume_from_checkpoint = (
-                False  # So the trainer won't try loading its state
-            )
-        # The two files above have a different name depending on how they were saved, but are actually the same.
+            checkpoint_name = os.path.join(resume_from_checkpoint, "adapter_model.bin")
+            resume_from_checkpoint = None
         if os.path.exists(checkpoint_name):
             print(f"Restarting from {checkpoint_name}")
             adapters_weights = torch.load(checkpoint_name)
@@ -190,27 +164,17 @@ def train(
         else:
             print(f"Checkpoint {checkpoint_name} not found")
 
-    # Be more transparent about the % of trainable params.
     model.print_trainable_parameters()
 
     if val_set_size > 0:
         train_val = data["train"].train_test_split(
             test_size=val_set_size, shuffle=True, seed=42
         )
-        train_data = (
-            train_val["train"].shuffle().map(generate_and_tokenize_prompt)
-        )
-        val_data = (
-            train_val["test"].shuffle().map(generate_and_tokenize_prompt)
-        )
+        train_data = train_val["train"].shuffle().map(generate_and_tokenize_prompt)
+        val_data = train_val["test"].shuffle().map(generate_and_tokenize_prompt)
     else:
         train_data = data["train"].shuffle().map(generate_and_tokenize_prompt)
         val_data = None
-
-    if not ddp and torch.cuda.device_count() > 1:
-        # keeps Trainer from trying its own DataParallelism when more than 1 gpu is available
-        model.is_parallelizable = True
-        model.model_parallel = True
 
     trainer = transformers.Trainer(
         model=slama_model,
@@ -234,8 +198,8 @@ def train(
             save_total_limit=2,
             load_best_model_at_end=True if val_set_size > 0 else False,
             ddp_find_unused_parameters=False if ddp else None,
-            group_by_length=group_by_length,
-            report_to=None,
+            train_sampling_strategy=train_sampling_strategy,
+            report_to="none",
             run_name=None,
         ),
         data_collator=transformers.DataCollatorForSeq2Seq(
@@ -252,10 +216,7 @@ def train(
     model.save_pretrained(output_dir)
     torch.save(slama_model.embeddings, os.path.join(output_dir, "embeddings.pth"))
 
-    print(
-        "\n If there's a warning about missing keys above, please disregard :)"
-    )
-
+    print("\n If there's a warning about missing keys above, please disregard :)")
 
 if __name__ == "__main__":
     fire.Fire(train)

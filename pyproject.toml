@@ -23,6 +23,8 @@ dependencies = [
     "pytorch-pretrained-bert>=0.6.2",
     "boto3>=1.42.93",
     "wikipedia>=1.4.0",
+    "protobuf>=7.34.1",
+    "tiktoken>=0.12.0",
 ]
 
 [tool.uv.sources]

@@ -1,44 +1,33 @@
 #!/bin/bash
 # 微调启动脚本
-# 使用方法: cdko && acko && bash scripts/run_finetune_fb15k237n.sh
+# 使用方法: bash scripts/run_finetune_codex.sh
 
-# 路径设置
-MODEL_PATH='/home/ma-user/work/model/Alpaca-7B'
-DATA_PATH='data/FB15k-237N-test.json'
-OUTPUT_DIR='output/alpaka_7b_fb'
-KGE_MODEL='data/FB15k-237N-rotate.pth'
-LOG_DIR='logs'
+# ==================== 路径设置 ====================
+MODEL_PATH='/data/yitingting/models/alpaca-7b'
+DATA_PATH='LLM_Discriminator/data/CoDeX-S-test.json'
+KGE_MODEL='LLM_Discriminator/data/CoDeX-S-rotate.pth'
+OUTPUT_DIR='LLM_Discriminator/output/alpaka_7b_codex'
 TIME_STAMP=$(date +%Y%m%d_%H%M%S)
 
-
-# wandb 设置
-export WANDB_DISABLED=true
-wandb offline
-wandb disabled
-
-# 设置 NPU 环境变量
-export ASCEND_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export NPU_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export WORLD_SIZE=8
+# ==================== GPU 设置 ====================
+export CUDA_VISIBLE_DEVICES=0,2
 export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=29503
-NPROC=$(( $(echo "$NPU_VISIBLE_DEVICES" | tr -cd ',' | wc -c) + 1 ))
+NPROC=$(( $(echo "$CUDA_VISIBLE_DEVICES" | tr -cd ',' | wc -c) + 1 ))
 
-
-# 创建目录及文件
-mkdir -p $LOG_DIR
-mkdir -p $OUTPUT_DIR
-LOG_FILE="$LOG_DIR/finetune_${TIME_STAMP}.log"
-
-# 设置 tokenizers 并行化环境变量，避免警告
+# ==================== 环境变量 ====================
 export TOKENIZERS_PARALLELISM=false
 
-# 显示NPU信息
-echo "NPU信息:"
-if command -v npu-smi &> /dev/null; then
-    npu-smi info
+# 创建输出目录
+mkdir -p $OUTPUT_DIR
+LOG_FILE="$OUTPUT_DIR/train_${TIME_STAMP}.log"
+
+# 显示GPU信息
+echo "GPU信息:"
+if command -v nvidia-smi &> /dev/null; then
+    nvidia-smi
 else
-    echo "npu-smi 命令不可用"
+    echo "nvidia-smi 命令不可用"
 fi
 # 让用户确认是否继续
 read -p "Continue? (Y/n): " CONFIRM
@@ -65,14 +54,21 @@ nohup torchrun \
     --kge_model $KGE_MODEL \
     --lora_target_modules '["q_proj","k_proj","v_proj","o_proj"]' \
     --llm_dim 4096 \
+    --train_sampling_strategy "group_by_length" \
     >> $LOG_FILE 2>&1 &
 
 # 获取进程ID
 PID=$!
 {
     echo "========================================================="
-    echo "LoRA微调进程已启动, PID: $PID    日志文件: $LOG_FILE"
+    echo "LoRA微调进程已启动, PID: $PID"
+    echo "输出目录: $OUTPUT_DIR/"
+    echo "  - 模型权重: $OUTPUT_DIR/adapter_model.bin"
+    echo "  - KG嵌入:   $OUTPUT_DIR/embeddings.pth"
+    echo "  - 训练日志: $LOG_FILE"
+    echo "  - 检查点:   $OUTPUT_DIR/checkpoint-*/"
+    echo "========================================================="
     echo "查看日志: tail -f $LOG_FILE"
-    echo "停止进程: ps aux | grep finetune_kopa.py | grep -v grep | awk '{print \$2}' | xargs kill -9"
+    echo "停止进程: kill $PID"
     echo "========================================================="
 } | tee -a "$LOG_FILE"

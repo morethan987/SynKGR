@@ -1,36 +1,33 @@
 #!/bin/bash
-# 微调后的LLM的启动脚本
-# 使用方法: cdko && ackopa && bash scripts/test_finetuned_llm.sh
+# 微调后的LLM的测试脚本
+# 使用方法: bash scripts/test_finetuned_llm.sh
 
-# 路径设置
-MODEL_PATH='wxjiao/alpaca-7b'
-# DATA_PATH='LLM_Discriminator/data/FB15k-237N-test.json'
+# ==================== 路径设置 ====================
+MODEL_PATH='/data/yitingting/models/alpaca-7b'
 DATA_PATH='LLM_Discriminator/data/CoDeX-S-test.json'
-# LORA_PATH="LLM_Discriminator/output/alpaca7b_fb"
-LORA_PATH="LLM_Discriminator/output/alpaca7b_CoDeX-S"
+LORA_PATH='LLM_Discriminator/output/alpaka_7b_codex'
 LOG_DIR='LLM_Discriminator/logs'
 TIME_STAMP=$(date +%Y%m%d_%H%M%S)
-# LOG_FILE="$LOG_DIR/test_fb15k_${TIME_STAMP}.log"
 LOG_FILE="$LOG_DIR/test_codex_${TIME_STAMP}.log"
 
-# 设置 NPU 环境变量
-export CUDA_VISIBLE_DEVICES=0,1,2
-export WORLD_SIZE=3
+# ==================== GPU 设置 ====================
+export CUDA_VISIBLE_DEVICES=0,2
 export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=29503
 NPROC=$(( $(echo "$CUDA_VISIBLE_DEVICES" | tr -cd ',' | wc -c) + 1 ))
 
+# ==================== 环境变量 ====================
+export TOKENIZERS_PARALLELISM=false
 
-# 创建目录及文件
+# 创建目录
 mkdir -p $LOG_DIR
-mkdir -p $OUTPUT_DIR
 
-# 显示NPU信息
-echo "Show device info:"
-if command -v npu-smi &> /dev/null; then
-    npu-smi info
-else
+# 显示GPU信息
+echo "GPU信息:"
+if command -v nvidia-smi &> /dev/null; then
     nvidia-smi
+else
+    echo "nvidia-smi 命令不可用"
 fi
 # 让用户确认是否继续
 read -p "Continue? (Y/n): " CONFIRM
@@ -39,14 +36,12 @@ if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" && "$CONFIRM" != "" ]]; then
     exit 0
 fi
 
-# test_with_discriminator.py
-# test_finetuned_llm.py
 nohup torchrun \
     --nnodes=1 \
     --nproc_per_node=$NPROC \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
-    LLM_Discriminator/test_with_discriminator.py \
+    LLM_Discriminator/test_finetuned_llm.py \
     --base_model $MODEL_PATH \
     --test_data $DATA_PATH \
     --lora_weights $LORA_PATH \
@@ -57,7 +52,10 @@ nohup torchrun \
 PID=$!
 {
     echo "========================================================="
-    echo "测试微调进程已启动, PID: $PID    日志文件: $LOG_FILE"
+    echo "测试进程已启动, PID: $PID"
+    echo "LoRA权重:  $LORA_PATH/"
+    echo "日志文件:  $LOG_FILE"
+    echo "========================================================="
     echo "查看日志: tail -f $LOG_FILE"
     echo "停止进程: kill $PID"
     echo "========================================================="
