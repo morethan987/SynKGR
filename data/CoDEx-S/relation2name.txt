@@ -1,0 +1,71 @@
+P101	field of work
+P102	member of political party
+P1050	medical condition
+P1056	product or material produced
+P106	occupation
+P108	employer
+P112	founded by
+P113	airline hub
+P114	airline alliance
+P119	place of burial
+P123	publisher
+P1303	instrument
+P131	located in the administrative terroritorial entity
+P135	movement
+P136	genre
+P138	named after
+P140	religion
+P1412	languages spoken, written, or signed
+P1454	legal form
+P149	architectural style
+P159	headquarters location
+P161	cast member
+P169	chief executive officer
+P17	country
+P170	creator
+P172	ethnic group
+P19	place of birth
+P194	legislative body
+P1995	health specialty
+P20	place of death
+P2176	drug used for treatment
+P2283	uses
+P2348	time period
+P2578	studies
+P26	spouse
+P264	record label
+P27	country of citizenship
+P30	continent
+P3095	practiced by
+P3373	sibling
+P35	head of state
+P36	capital
+P361	part of
+P366	use
+P37	official language
+P40	child
+P407	language of work or name
+P451	unmarried partner
+P452	industry
+P4552	mountain range
+P457	foundational text
+P463	member of
+P466	occupant
+P47	shares border with
+P488	chairperson
+P495	country of origin
+P50	author
+P509	cause of death
+P530	diplomatic relation
+P54	member of sports team
+P551	residence
+P57	director
+P641	sport
+P69	educated at
+P737	influenced by
+P740	location of formation
+P749	parent organization
+P780	symptoms
+P800	notable works
+P84	architect
+P840	narrative location

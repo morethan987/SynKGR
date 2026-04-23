@@ -1,6 +1,5 @@
 __pycache__/
 *.pth
-*.json
 TODO.md
 *.back
 output/
@@ -13,11 +12,15 @@ true_triplets.txt
 *.otf
 case_search/
 
+# data for LLM discriminator
+LLM_Discriminator/data/
+
+# data for kg-bert
+kg-bert/data/
+
 # data for openke
 openke/FB15k-237N/
 openke/CoDEx-S/
 
 # KGE training outputs
 LLM_Discriminator/train_kge_output/
-
-kg-bert/

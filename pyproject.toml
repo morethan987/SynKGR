@@ -20,6 +20,9 @@ dependencies = [
     "torch_geometric==2.6.1",
     "sentence-transformers>=2.6.0",
     "httpx[socks]>=0.28.1",
+    "pytorch-pretrained-bert>=0.6.2",
+    "boto3>=1.42.93",
+    "wikipedia>=1.4.0",
 ]
 
 [tool.uv.sources]
