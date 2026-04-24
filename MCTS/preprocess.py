@@ -4,7 +4,6 @@ import argparse
 from utils import get_sparse_entities
 
 
-
 def preprocess(args):
     """
     遍历所有稀疏实体，抽取其关系种类以及位置，最后保存为pth文件
@@ -39,14 +38,14 @@ def preprocess(args):
     entity_relations = {entity: list(positions) for entity, positions in entity_relations.items()}
 
     # 保存数据
-    torch.save(entity_relations, f"{args.output_path}/processed_data.pth")
-    print(f"保存的稀疏实体关系数据已保存到 {args.output_path}/processed_data.pth")
+    torch.save(entity_relations, args.output_file)
+    print(f"保存的稀疏实体关系数据已保存到 {args.output_file}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_folder", type=str, required=True, help="Path to the data folder")
-    parser.add_argument("--output_path", type=str, required=True, help="Path to the output folder")
+    parser.add_argument("--output_file", type=str, required=True, help="Output file path (e.g. MCTS/output/processed_data_codex-s.pth)")
     parser.add_argument(
         "--threshold",
         type=float,

@@ -5,7 +5,7 @@ import torch
 import argparse
 import threading
 from setup_logger import setup_logger, rank_logger
-from utils import init_distributed, cleanup_distributed, shard_indices, get_device
+from utils import init_distributed, cleanup_distributed, shard_indices
 import torch.distributed as dist
 from tqdm.auto import tqdm
 from transformers.utils import logging
@@ -23,11 +23,8 @@ class Runner:
         self.rank = int(os.environ.get("RANK", 0))
         self.local_rank = int(os.environ.get("LOCAL_RANK", 0))
         self.world_size = int(os.environ.get("WORLD_SIZE", 1))
-        self.device, self.device_type = get_device(self.local_rank)
-        if self.device_type == "npu":
-            torch.npu.set_device(self.device)
-        elif self.device_type == "cuda":
-            torch.cuda.set_device(self.device)
+        self.device = torch.device(f"cuda:{self.local_rank}")
+        torch.cuda.set_device(self.device)
 
         # 初始化分布式环境
         self.is_initialed = init_distributed(
@@ -112,7 +109,7 @@ class Runner:
         policy_state = self.enhancer.rollout_policy.get_state()
         data = {
             "processed_entities": list(self.processed_entities),
-            "discovered_triplets": self.enhancer.local_discovered_triplets,
+            "discovered_triplets": list(self.enhancer.local_discovered_triplets),
             "rollout_policy_state": policy_state,
             "entity_count": len(self.processed_entities),
             "triplet_count": len(self.enhancer.local_discovered_triplets)
@@ -243,13 +240,16 @@ if __name__ == "__main__":
         "--output_folder", type=str, default="MCTS/output", help="Output folder"
     )
     parser.add_argument(
-        "--llm_path", type=str, required=True, help="Path to the LLM model"
+        "--llm_path", type=str, default=None,
+        help="Path to the LLM model (required when --discriminator_type llm)"
     )
     parser.add_argument(
-        "--lora_path", type=str, required=True, help="Path to the LoRA weights"
+        "--lora_path", type=str, default=None,
+        help="Path to the LoRA weights (required when --discriminator_type llm)"
     )
     parser.add_argument(
-        "--embedding_path", type=str, required=True, help="Path to the kg embeddings"
+        "--embedding_path", type=str, default=None,
+        help="Path to the kg embeddings (required when --discriminator_type llm)"
     )
     parser.add_argument(
         "--entity2embedding_path", type=str, required=True, help="entity2embedding file path",
@@ -303,6 +303,19 @@ if __name__ == "__main__":
         help="Path to trained KGE model checkpoint for use as discriminator (required when --discriminator_type kge)"
     )
     args = parser.parse_args()
+
+    # 条件校验：根据判别器类型检查必需参数
+    if args.discriminator_type == "llm":
+        missing = [f"--{k}" for k in ["llm_path", "lora_path", "embedding_path"] if getattr(args, k) is None]
+        if missing:
+            parser.error(f"discriminator_type=llm requires: {', '.join(missing)}")
+    elif args.discriminator_type == "kgbert":
+        missing = [f"--{k}" for k in ["kgbert_model_dir", "kgbert_data_dir"] if getattr(args, k) is None]
+        if missing:
+            parser.error(f"discriminator_type=kgbert requires: {', '.join(missing)}")
+    elif args.discriminator_type == "kge":
+        if args.kge_discriminator_path is None:
+            parser.error("discriminator_type=kge requires: --kge_discriminator_path")
 
     # 添加上级目录到sys.path以导入自定义模块
     sys.path.append(args.discriminator_folder)

@@ -38,16 +38,18 @@ ENTITY2EMBEDDING_PATH="$DATA_PATH/entity2embedding.pth"
 
 case "$DATASET" in
     CoDEx-S)
+        THRESHOLD='5e-4'
         KGE_MODEL='LLM_Discriminator/data/CoDeX-S-rotate.pth'
-        LLM_PATH='wxjiao/alpaca-7b'
-        LORA_PATH='LLM_Discriminator/output/alpaca7b_CoDeX-S'
+        LLM_PATH='/data/yitingting/models/alpaca-7b'
+        LORA_PATH='LLM_Discriminator/output/alpaka_7b_codex'
         KGBERT_MODEL_DIR='kg-bert/output/triple_classifier_CoDEx-S'
         KGBERT_DATA_DIR='kg-bert/data/CoDEx-S'
         KGE_DISCRIMINATOR_PATH='LLM_Discriminator/data/CoDeX-S-rotate.pth'
         ;;
     FB15k-237N)
+        THRESHOLD='9e-5'
         KGE_MODEL='LLM_Discriminator/data/FB15k-237N-rotate.pth'
-        LLM_PATH='wxjiao/alpaca-7b'
+        LLM_PATH='/data/yitingting/models/alpaca-7b'
         LORA_PATH='LLM_Discriminator/output/alpaca7b_fb'
         KGBERT_MODEL_DIR='kg-bert/output/triple_classifier_FB15k-237N'
         KGBERT_DATA_DIR='kg-bert/data/FB15k-237N'
@@ -60,20 +62,35 @@ EMBEDDING_PATH="${LORA_PATH}/embeddings.pth"
 # ==================== 通用配置 ====================
 DISCRIMINATOR_FOLDER="$PWD/LLM_Discriminator"
 OUTPUT_DIR="MCTS/output/${DATASET,,}-${DISCRIMINATOR}"
-PROCESSED_DATA="$OUTPUT_DIR/processed_data.pth"
+PROCESSED_DATA="MCTS/output/processed_data_${DATASET,,}.pth"
 LOG_DIR='MCTS/logs'
 TIME_STAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="$LOG_DIR/${DATASET,,}_${DISCRIMINATOR}_${TIME_STAMP}.log"
 
-export CUDA_VISIBLE_DEVICES=1
-export WORLD_SIZE=1
+export CUDA_VISIBLE_DEVICES=0,1,2
 export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=29503
 export TOKENIZERS_PARALLELISM=false
 NPROC=$(( $(echo "$CUDA_VISIBLE_DEVICES" | tr -cd ',' | wc -c) + 1 ))
 
-# ==================== 创建目录 ====================
 mkdir -p "$LOG_DIR" "$OUTPUT_DIR" "$OUTPUT_DIR/checkpoints"
+
+# ==================== 数据预处理 ====================
+PREPROCESS_OUTPUT_DIR="MCTS/output"
+if [ ! -f "$PROCESSED_DATA" ]; then
+    echo "未找到预处理数据: $PROCESSED_DATA"
+    echo "正在运行数据预处理 (dataset=$DATASET, threshold=$THRESHOLD)..."
+    mkdir -p "$PREPROCESS_OUTPUT_DIR"
+    python MCTS/preprocess.py \
+        --data_folder "$DATA_PATH" \
+        --output_file "$PROCESSED_DATA" \
+        --threshold "$THRESHOLD"
+    if [ $? -ne 0 ]; then
+        echo "错误: 数据预处理失败"
+        exit 1
+    fi
+    echo "数据预处理完成"
+fi
 
 # ==================== 预检查 ====================
 case "$DISCRIMINATOR" in

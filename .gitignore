@@ -29,3 +29,6 @@ kg-bert/output/
 
 # LLM discriminator outputs
 LLM_Discriminator/output/
+
+# mcts outputs
+checkpoints/
