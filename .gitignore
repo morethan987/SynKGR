@@ -4,10 +4,6 @@ TODO.md
 *.back
 *.log
 release/
-auxiliary_triples.txt
-auxiliary_triples_old.txt
-merged_auxiliary_triples.txt
-true_triplets.txt
 *.otf
 case_search/
 
@@ -31,4 +27,4 @@ kg-bert/output/
 LLM_Discriminator/output/
 
 # mcts outputs
-checkpoints/
+MCTS/output
