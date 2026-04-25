@@ -80,6 +80,7 @@ class KGEDiscriminator(BaseDiscriminator):
                     results.append({
                         "triple_str": batch[j].get("input", ""),
                         "is_correct": prob.item() >= self.threshold,
+                        "confidence": prob.item(),
                     })
 
         return results

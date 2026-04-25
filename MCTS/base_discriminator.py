@@ -25,5 +25,6 @@ class BaseDiscriminator(ABC):
             列表，每个元素为字典:
                 - "triple_str": 三元组的文本描述
                 - "is_correct": bool, 判别器认为该三元组是否正确
+                - "confidence": float, 判别器的置信度，范围 [0, 1]
         """
         pass

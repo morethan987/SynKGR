@@ -174,12 +174,14 @@ class KGBERTDiscriminator(BaseDiscriminator):
                 segment_ids_t = torch.LongTensor(batch_segment_ids).to(self.device)
 
                 logits = self.model(input_ids_t, segment_ids_t, input_mask_t)
-                preds = np.argmax(logits.cpu().numpy(), axis=1)
+                probs = torch.softmax(logits, dim=-1)
 
-                for j, pred in enumerate(preds):
+                for j in range(len(batch_data)):
+                    confidence = probs[j, 1].item()
                     results.append({
                         "triple_str": batch_triple_strs[j],
-                        "is_correct": bool(pred == 1)
+                        "is_correct": confidence >= 0.5,
+                        "confidence": confidence,
                     })
 
         return results

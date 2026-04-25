@@ -93,57 +93,42 @@ class TriplesDiscriminator(BaseDiscriminator):
         """
         results = []
         with torch.no_grad():
-            # Process the data in batches
             for i in range(0, len(triples_list), self.batch_size):
                 batch_data = triples_list[i:i + self.batch_size]
 
-                # Prepare prompts and embedding IDs for the batch
                 prompts = [
                     ALPACA_PROMPT.format(input=item["input"], output="") for item in batch_data
                 ]
-                # Assumption: Each item["embedding_ids"] is a list of exactly 3 integers.
-                # We can directly create a tensor for the whole batch.
                 embedding_ids = torch.LongTensor([item["embedding_ids"] for item in batch_data]).to(self.device)
 
-                # Tokenize text prompts
                 inputs = self.tokenizer(
                     prompts, return_tensors="pt", padding=True, truncation=True, max_length=512
                 )
                 input_ids = inputs.input_ids.to(self.device)
 
-                # Get embeddings for tokens
                 token_embeds = self.model.model.model.embed_tokens(input_ids).to(self.torch_dtype)
-
-                # Get KG prefix embeddings for the entire batch in one go.
-                # Since all prefixes now have the same length (3), no padding is needed.
                 prefix_embeds = self.kg_embeddings(embedding_ids).to(self.torch_dtype)
-
-                # Concatenate the uniform-sized prefix embeddings and token embeddings
                 input_embeds = torch.cat((prefix_embeds, token_embeds), dim=1)
 
-                # Generate responses for the batch
-                generate_ids = self.model.generate(
+                true_token_id = self.tokenizer.encode("True", add_special_tokens=False)[0]
+                false_token_id = self.tokenizer.encode("False", add_special_tokens=False)[0]
+
+                outputs = self.model(
                     inputs_embeds=input_embeds,
-                    max_new_tokens=16
+                    output_hidden_states=False,
                 )
+                last_logits = outputs.logits[:, -1, :]
+                true_logit = last_logits[:, true_token_id]
+                false_logit = last_logits[:, false_token_id]
+                probs = torch.softmax(torch.stack([true_logit, false_logit], dim=-1), dim=-1)
+                confidences = probs[:, 0]
 
-                # Decode and parse responses
-                contexts = self.tokenizer.batch_decode(
-                    input_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-                )
-                responses_full = self.tokenizer.batch_decode(
-                    generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-                )
-
-                for j, full_response in enumerate(responses_full):
-                    # Extract the prediction text
-                    prediction_text = full_response.replace(contexts[j], "").strip()
-                    # Determine correctness
-                    is_correct = "True" in prediction_text
-
+                for j in range(len(batch_data)):
+                    confidence = confidences[j].item()
                     results.append({
                         "triple_str": batch_data[j]["input"],
-                        "is_correct": is_correct
+                        "is_correct": confidence >= 0.5,
+                        "confidence": confidence,
                     })
 
         return results
