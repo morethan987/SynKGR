@@ -4,13 +4,13 @@
 
 用法:
 python MCTS/score_auxiliary_confidence.py \
-    --triplets MCTS/output/codex-s-kge/discovered_triplets.txt \
+    --triplets MCTS/output/codex-s-kge/20260101_120000/discovered_triplets.txt \
     --entity2id data/CoDEx-S/entity2id.txt \
     --relation2id data/CoDEx-S/relation2id.txt \
     --entity2name data/CoDEx-S/entity2name.txt \
     --model_path openke/output/CoDEx-S/rotate.ckpt \
     --model_name RotatE \
-    --output data/CoDEx-S/auxiliary_triples_confidence.json
+    --output MCTS/output/codex-s-kge/20260101_120000/auxiliary_triples_confidence.json
 """
 
 import argparse

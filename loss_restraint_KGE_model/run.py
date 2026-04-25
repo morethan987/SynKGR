@@ -120,9 +120,14 @@ class Runner(object):
                         sr2observed[(sub, rel)].add(obj)
                         sr2observed[(obj, rel+self.p.num_rel)].add(sub)
 
+                aux_path = self.p.aux_triples
                 if self.p.loss_delta > 0 or self.p.keep_aux:
+                    if not os.path.isfile(aux_path):
+                        self.logger.error(f'Auxiliary triples file not found: {aux_path}')
+                        sys.exit(1)
                     aux_cnt = 0
-                    for line in open(f'data/{self.p.dataset}/auxiliary_triples.txt'):
+                    self.logger.info(f'Loading auxiliary triples from: {aux_path}')
+                    for line in open(aux_path):
                         sub, rel, obj = map(
                             str.lower, line.strip().split('\t'))
                         try:
@@ -222,10 +227,11 @@ class Runner(object):
 
     def _load_confidence_map(self):
         """加载辅助三元组置信度映射，返回 {(h_id, r_id, t_id): confidence}"""
-        conf_path = f'data/{self.p.dataset}/auxiliary_triples_confidence.json'
+        conf_path = self.p.aux_confidence
         if not os.path.isfile(conf_path):
             self.logger.info(f'Confidence map not found at {conf_path}, metrics collection disabled')
             return {}
+        self.logger.info(f'Loading confidence map from: {conf_path}')
         with open(conf_path, 'r', encoding='utf-8') as f:
             raw = json.load(f)
         conf_map = {}
@@ -246,7 +252,7 @@ class Runner(object):
     def _build_aux_triple_set(self):
         """构建辅助三元组 ID 集合，包含原始边和反向边"""
         aux_set = set()
-        aux_path = f'data/{self.p.dataset}/auxiliary_triples.txt'
+        aux_path = self.p.aux_triples
         if not os.path.isfile(aux_path):
             return aux_set
         for line in open(aux_path):
@@ -1042,6 +1048,8 @@ if __name__ == '__main__':
     parser.add_argument('--loss_delta',	dest='loss_delta', default=-1, type=float, help='hyperparameter that determines the speed of increase of rejection rate')
     parser.add_argument('--keep_aux',	dest='keep_aux', default=True, type=bool, help='Whether to keep the auxiliary triples')
     parser.add_argument('--loss_only_new', dest='loss_only_new', default=1, type=float, help='only modify the loss of the added auxiliary triples')
+    parser.add_argument('--aux_triples', dest='aux_triples', default=None, type=str, help='Path to auxiliary_triples.txt')
+    parser.add_argument('--aux_confidence', dest='aux_confidence', default=None, type=str, help='Path to auxiliary_triples_confidence.json')
 
     args = parser.parse_args()
 

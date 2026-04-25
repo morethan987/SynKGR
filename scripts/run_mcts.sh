@@ -61,7 +61,7 @@ EMBEDDING_PATH="${LORA_PATH}/embeddings.pth"
 
 # ==================== 通用配置 ====================
 DISCRIMINATOR_FOLDER="$PWD/LLM_Discriminator"
-OUTPUT_DIR="MCTS/output/${DATASET,,}-${DISCRIMINATOR}"
+OUTPUT_DIR="MCTS/output/${DATASET,,}-${DISCRIMINATOR}/${TIME_STAMP}"
 PROCESSED_DATA="MCTS/output/processed_data_${DATASET,,}.pth"
 LOG_DIR='MCTS/logs'
 TIME_STAMP=$(date +%Y%m%d_%H%M%S)
@@ -127,6 +127,12 @@ case "$DISCRIMINATOR" in
     kge)     echo "KGE模型:         $KGE_DISCRIMINATOR_PATH" ;;
 esac
 echo "=========================="
+echo ""
+echo "=== 输出文件位置 ==="
+echo "discovered_triplets.txt:       $OUTPUT_DIR/discovered_triplets.txt"
+echo "auxiliary_triples_confidence:  $OUTPUT_DIR/auxiliary_triples_confidence.json"
+echo "日志文件:                      $LOG_FILE"
+echo "=========================="
 
 if command -v npu-smi &> /dev/null; then
     npu-smi info
@@ -181,6 +187,8 @@ PID=$!
     echo "========================================================="
     echo "MCTS ($DISCRIMINATOR) 进程已启动, PID: $PID"
     echo "数据集: $DATASET    日志文件: $LOG_FILE"
+    echo "输出目录: $OUTPUT_DIR"
+    echo "confidence: $OUTPUT_DIR/auxiliary_triples_confidence.json"
     echo "查看日志: tail -f $LOG_FILE"
     echo "停止进程: kill $PID"
     echo "========================================================="
