@@ -61,6 +61,7 @@ class Runner:
         )
 
         self.all_discovered_triplets = set()
+        self.all_confidences = {}
         self.processed_entities = set()
 
         # 加载检查点
@@ -171,6 +172,9 @@ class Runner:
                     entity, position, relation
                 )
 
+                # 收集置信度
+                self.all_confidences.update(self.enhancer.all_confidences)
+
                 rank_logger(self.logger, self.rank)(f"Discovered {len(discovered)} valid triplets for {entity}-{position}-{relation}")
 
             # 标记为已处理
@@ -195,16 +199,21 @@ class Runner:
             self.checkpoint_thread.join() # join()会阻塞主进程，直到线程结束
             rank_logger(self.logger, self.rank)("Final checkpoint save completed.")
 
-        # 收集所有进程的结果
+        # 收集所有进程的结果（三元组 + 置信度）
         if self.is_initialed:
             self.logger.info(f"Rank {self.rank} gathering results...")
             dist.barrier()
-            gathered = [None] * self.world_size if self.rank == 0 else None
+            gathered_triplets = [None] * self.world_size if self.rank == 0 else None
+            gathered_confidences = [None] * self.world_size if self.rank == 0 else None
             # 转换为列表以便传输
-            dist.gather_object(list( self.enhancer.local_discovered_triplets ), gathered, dst=0)
+            dist.gather_object(list(self.enhancer.local_discovered_triplets), gathered_triplets, dst=0)
+            dist.gather_object(dict(self.all_confidences), gathered_confidences, dst=0)
             if self.rank == 0:
-                for triplet_list in gathered:
+                for triplet_list in gathered_triplets:
                     self.all_discovered_triplets.update(triplet_list)
+                for conf_map in gathered_confidences:
+                    if conf_map:
+                        self.all_confidences.update(conf_map)
             else:
                 return
         else:
@@ -221,6 +230,20 @@ class Runner:
         with open(output_path, 'w', encoding='utf-8') as f:
             for head, rel, tail in set(self.all_discovered_triplets):
                 f.write(f"{head}\t{rel}\t{tail}\n")
+
+        # 保存置信度映射
+        confidence_path = os.path.join(
+            self.args.output_folder, "auxiliary_triples_confidence.json"
+        )
+        confidence_map = {}
+        for (h, r, t), conf in self.all_confidences.items():
+            key = f"{h}\t{r}\t{t}"
+            confidence_map[key] = round(conf, 6)
+        with open(confidence_path, 'w', encoding='utf-8') as f:
+            json.dump(confidence_map, f, indent=2, ensure_ascii=False)
+        rank_logger(self.logger, self.rank)(
+            f"Saved {len(confidence_map)} confidence entries to {confidence_path}"
+        )
 
         self.logger.info(f"Rank {self.rank}: Knowledge graph enhancement completed successfully!")
 

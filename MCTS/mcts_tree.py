@@ -1,4 +1,5 @@
 import math
+import random
 from collections import defaultdict
 from typing import List, Tuple
 
@@ -29,8 +30,9 @@ class MCTS:
         self.N = defaultdict(int)    # 节点访问次数
         self.explored = set()        # 已探索节点集合
         self.seen = set()           # 本次迭代中已见过的三元组集合
+        self.all_confidences = {}    # {(h,r,t): confidence} 缓存
 
-    def do_iteration(self, root_node: SearchNode) -> Tuple[List[Tuple[str, str, str]], int]:
+    def do_iteration(self, root_node: SearchNode) -> Tuple[List[Tuple[str, str, str]], int, dict]:
         """
         执行一次完整的MCTS迭代
 
@@ -38,7 +40,7 @@ class MCTS:
             root_node: 搜索根节点
 
         Returns:
-            (发现的正确三元组列表, 使用的分类器调用次数)
+            (发现的正确三元组列表, 使用的分类器调用次数, 本次迭代的置信度映射)
         """
         rank_logger(self.logger, self.rank)("Starting MCTS iteration")
 
@@ -53,18 +55,20 @@ class MCTS:
         self._expand(leaf)
 
         # Step 3: Rollout - 在叶子节点或新扩展的节点上进行评估
-        # rollout_results, total_budget_used = self._rollout(leaf)
-        rollout_results, total_budget_used, path_taken_in_rollout = self._rollout(leaf)
+        rollout_results, total_budget_used, iter_confidences = self._rollout(leaf)
+
+        # 缓存置信度
+        self.all_confidences.update(iter_confidences)
 
         # Step 4: Backpropagation
         reward = self._calculate_reward(rollout_results, total_budget_used)
         self._backpropagate(path, reward)
 
         # Step 5: Update the policy
-        if self.rollout_policy and path_taken_in_rollout:
-            self.rollout_policy.update(path_taken_in_rollout, reward)
+        if self.rollout_policy and self._rollout_path_taken is not None:
+            self.rollout_policy.update(self._rollout_path_taken, reward)
 
-        return rollout_results, total_budget_used
+        return rollout_results, total_budget_used, iter_confidences
 
     def _select(self, node: SearchNode) -> List[SearchNode]:
         """
@@ -154,12 +158,12 @@ class MCTS:
         node.expand()
         self.explored.add(node)
 
-    def _rollout(self, node: SearchNode) -> Tuple[List[Tuple[str, str, str]], int, List[Tuple[SearchNode, type]]]:
+    def _rollout(self, node: SearchNode) -> Tuple[List[Tuple[str, str, str]], int, dict]:
         """
         Rollout阶段：使用在线学习策略（或随机策略）来评估节点质量
 
         Returns:
-            (发现的正确三元组列表, 使用的分类器调用次数, 本次Rollout的决策路径)
+            (发现的正确三元组列表, 使用的分类器调用次数, 三元组置信度映射)
         """
         current_node = node
         rollout_path = []  # 记录(状态节点, 所选动作类)的决策路径
@@ -184,9 +188,12 @@ class MCTS:
             current_node = chosen_action_class(child_context)
 
         # 到达终端节点，进行最终评估
-        results, budget_used = current_node.evaluate_candidates(self.seen)
+        results, budget_used, confidences = current_node.evaluate_candidates(self.seen)
 
-        return results, budget_used, rollout_path
+        # 保存 rollout 路径供外部使用
+        self._rollout_path_taken = rollout_path
+
+        return results, budget_used, confidences
 
     def _calculate_reward(self, rollout_results: List[Tuple[str, str, str]], total_budget_used: int) -> float:
         """
