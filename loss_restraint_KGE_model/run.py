@@ -35,24 +35,11 @@ class Runner(object):
         self.logger.info(vars(self.p))
         pprint(vars(self.p))
 
-        self.device, self.device_type = setup_device(
-            gpu_id=self.p.gpu,
-            npu_id=self.p.npu,
-            prefer_npu=getattr(self.p, 'prefer_npu', False)
-        )
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # update self.p
-        self.p.device_type = self.device_type
+        torch.cuda.manual_seed(self.p.seed)
 
-        # Set random seeds for reproducibility
-        if self.device_type == 'npu':
-            if hasattr(torch, 'npu') and torch.npu.is_available():
-                torch.npu.manual_seed(self.p.seed)
-        elif self.device_type == 'gpu':
-            torch.cuda.manual_seed(self.p.seed)
-
-        self.logger.info(
-            f"Using device: {self.device}, device_type: {self.device_type}")
+        self.logger.info(f"Using device: {self.device}")
 
         self.load_data()
         self.model = self.add_model(self.p.model, self.p.score_func)
@@ -369,6 +356,7 @@ class Runner(object):
 
     def save_id_config(self):
         """将id配置保存到txt文件中"""
+        os.makedirs(self.p.save_dir, exist_ok=True)
         with open(f'{self.p.save_dir}/entity2id.txt', 'w') as f:
             for ent, idx in self.ent2id.items():
                 f.write(f'{ent}\t{idx}\n')
@@ -1011,9 +999,6 @@ if __name__ == '__main__':
 
     parser.add_argument('--batch', dest='batch_size', default=128, type=int, help='Batch size')
     parser.add_argument('--gamma', default=40.0, type=float, help='Margin')
-    parser.add_argument('--gpu',dest='gpu',default='-1',type=int, help='Set GPU Ids : Eg: For CPU = -1, For Single GPU = 0')
-    parser.add_argument('--npu',dest='npu',default='-1',type=int, help='Set NPU Ids : Eg: For CPU = -1, For Single NPU = 0')
-    parser.add_argument('--prefer_npu',dest='prefer_npu',action='store_true', help='Prefer NPU over GPU when both are available')
     parser.add_argument('--epoch',dest='max_epochs', default=500,type=int,help='Number of epochs')
     parser.add_argument('--l2',default=0.0, type=float,help='L2 Regularization for Optimizer')
     parser.add_argument('--lr',default=0.001, type=float, help='Starting Learning Rate')

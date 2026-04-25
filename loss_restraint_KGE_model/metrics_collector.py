@@ -73,14 +73,22 @@ class MetricsCollector:
             if final_losses[i] == 0:
                 self.accumulated_drop_count[key] = self.accumulated_drop_count.get(key, 0) + 1
 
+    NUM_BINS = 20
+    BIN_WIDTH = 1.0 / NUM_BINS
+
+    def _bin_key(self, confidence):
+        bin_idx = min(int(confidence * self.NUM_BINS), self.NUM_BINS - 1)
+        lo = bin_idx * self.BIN_WIDTH
+        hi = lo + self.BIN_WIDTH
+        return f"{lo:.2f}-{hi:.2f}"
+
     def finalize_epoch_loss(self, epoch):
         """Epoch 结束时调用，按置信度区间汇总 loss restraint 指标"""
-        bins = {f"{i/5:.1f}-{(i+1)/5:.1f}": {'total': 0, 'dropped': 0, 'loss_sum': 0.0}
-                for i in range(5)}
+        bins = {self._bin_key(i * self.BIN_WIDTH): {'total': 0, 'dropped': 0, 'loss_sum': 0.0}
+                for i in range(self.NUM_BINS)}
         for key, count in self.accumulated_count.items():
             conf = self.aux_confidence_map.get(key, 0.5)
-            bin_idx = min(int(conf * 5), 4)
-            bin_key = f"{bin_idx/5:.1f}-{(bin_idx+1)/5:.1f}"
+            bin_key = self._bin_key(conf)
             bins[bin_key]['total'] += count
             bins[bin_key]['dropped'] += self.accumulated_drop_count.get(key, 0)
             bins[bin_key]['loss_sum'] += self.accumulated_loss_sum.get(key, 0.0)
@@ -119,7 +127,7 @@ class MetricsCollector:
 
         aux_alphas = {
             'original': [],
-            **{f"{i/5:.1f}-{(i+1)/5:.1f}": [] for i in range(5)}
+            **{self._bin_key(i * self.BIN_WIDTH): [] for i in range(self.NUM_BINS)}
         }
 
         for i in range(num_edges):
@@ -131,8 +139,7 @@ class MetricsCollector:
 
             if key in self.aux_triple_set:
                 conf = self.aux_confidence_map.get(key, 0.5)
-                bin_idx = min(int(conf * 5), 4)
-                bin_key = f"{bin_idx/5:.1f}-{(bin_idx+1)/5:.1f}"
+                bin_key = self._bin_key(conf)
                 aux_alphas[bin_key].append(alpha_val)
             else:
                 aux_alphas['original'].append(alpha_val)

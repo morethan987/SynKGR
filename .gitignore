@@ -28,3 +28,6 @@ LLM_Discriminator/output/
 
 # mcts outputs
 MCTS/output
+
+# loss restraint KGE model outputs
+loss_restraint_KGE_model/output

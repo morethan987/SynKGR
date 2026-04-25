@@ -30,61 +30,6 @@ def set_gpu(gpus):
 	os.environ["CUDA_DEVICE_ORDER"]    = "PCI_BUS_ID"
 	os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 
-def setup_device(gpu_id, npu_id, prefer_npu=False):
-    """
-    设置计算设备（CPU, GPU, 或 NPU）。此版本为单卡训练优化。
-
-    参数:
-    - gpu_id (int): GPU设备ID。-1 表示不使用GPU。
-    - npu_id (int): NPU设备ID。-1 表示不使用NPU。
-    - prefer_npu (bool): 如果为True，并且NPU和GPU都可用，则优先选择NPU。
-
-    返回:
-    - device (torch.device): PyTorch设备对象。
-    - device_type (str): 设备类型 ('gpu', 'npu', 'cpu')。
-    """
-    use_npu = False
-    use_gpu = False
-
-    # 检查硬件可用性
-    npu_available = False
-    try:
-        import torch_npu
-        if torch_npu.npu.is_available():
-            npu_available = True
-    except ImportError:
-        pass
-
-    gpu_available = torch.cuda.is_available()
-
-    # 决策逻辑
-    if prefer_npu and npu_available and npu_id != -1:
-        use_npu = True
-    elif gpu_available and gpu_id != -1:
-        use_gpu = True
-    elif npu_available and npu_id != -1: # 作为备选项
-        use_npu = True
-
-    # 配置设备
-    if use_npu:
-        if npu_id >= torch_npu.npu.device_count():
-            raise ValueError(f"NPU id {npu_id} is not available.")
-        device = torch.device(f'npu:{npu_id}')
-        device_type = 'npu'
-        print(f"Using NPU: {npu_id}")
-    elif use_gpu:
-        if gpu_id >= torch.cuda.device_count():
-            raise ValueError(f"GPU id {gpu_id} is not available.")
-        device = torch.device(f'cuda:{gpu_id}')
-        device_type = 'gpu'
-        print(f"Using GPU: {gpu_id}")
-    else:
-        device = torch.device('cpu')
-        device_type = 'cpu'
-        print("Using CPU")
-
-    return device, device_type
-
 def get_logger(name):
     """
     创建一个只将日志输出到控制台的 logger 对象。
