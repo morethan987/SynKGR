@@ -155,7 +155,7 @@ def conj(a):
 	return a
 
 def cconv(a, b):
-	return torch.irfft(com_mult(torch.rfft(a, 1), torch.rfft(b, 1)), 1, signal_sizes=(a.shape[-1],))
+	return torch.fft.irfftn(torch.fft.rfftn(a, (-1)) * torch.fft.rfftn(b, (-1)), (-1))
 
 def ccorr(a, b):
 	# return torch.irfft(com_mult(conj(torch.rfft(a, 1)), torch.rfft(b, 1)), 1, signal_sizes=(a.shape[-1],))

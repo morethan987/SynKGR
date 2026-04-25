@@ -39,7 +39,7 @@ class BaseModel(torch.nn.Module):
 
 		return main_loss
 
-	def modify_loss_only_add(self, pred, true_label, newadd_label, clean_rate):  # pred.shape == true_label.shape = [batch_size, entity_num]
+	def modify_loss_only_add(self, pred, true_label, newadd_label, clean_rate, metrics_collector=None, epoch=0, sub_ids=None, rel_ids=None):  # pred.shape == true_label.shape = [batch_size, entity_num]
 
 		batch_size = int(pred.size()[0]) # 取出batch_size用于后面计算需要舍弃的噪声样本的数量
 		num_classes = int(pred.size()[1])
@@ -59,6 +59,16 @@ class BaseModel(torch.nn.Module):
 			topk_lossvalue = topk.values[-1]
 			zero_loss_matrix = torch.zeros_like(loss_matrix)
 			final_loss_matrix = torch.where(newadd_loss < topk_lossvalue, loss_matrix, zero_loss_matrix)
+
+		if metrics_collector is not None and sub_ids is not None and rel_ids is not None:
+			metrics_collector.record_batch_loss(
+				epoch=epoch,
+				sub_ids=sub_ids,
+				rel_ids=rel_ids,
+				newadd_label=newadd_label,
+				loss_matrix=loss_matrix.detach(),
+				final_loss_matrix=final_loss_matrix.detach(),
+			)
 
 		main_loss = final_loss_matrix.mean()
 

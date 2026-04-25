@@ -13,6 +13,11 @@ class CompGCNConv_adapt(MessagePassing):
 		self.act 		= act
 		self.device		= None
 
+		self.alpha          = None
+		self.last_alpha     = None
+		self.last_edge_index = None
+		self.last_edge_type = None
+
 		self.w_loop		= get_param((in_channels, out_channels))
 		self.w_in		= get_param((in_channels, out_channels))
 		self.w_out		= get_param((in_channels, out_channels))
@@ -46,6 +51,10 @@ class CompGCNConv_adapt(MessagePassing):
 		loop_res = torch.mm(x, self.w_loop)
 		out = self.drop(in_res) + self.drop(loop_res)
 		out = self.bn(out)
+
+		self.last_alpha = self.alpha
+		self.last_edge_index = edge_index
+		self.last_edge_type = edge_type
 
 		return self.act(out), torch.matmul(rel_embed, self.w_rel)
 

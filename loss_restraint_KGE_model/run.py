@@ -6,10 +6,11 @@ from ordered_set import OrderedSet
 from collections import defaultdict as ddict
 from pprint import pprint
 import os
+import json
 from helper import *
 from data_loader import *
-# sys.path.append('./')
 from models import *
+from metrics_collector import MetricsCollector
 
 
 class Runner(object):
@@ -45,8 +46,8 @@ class Runner(object):
 
         # Set random seeds for reproducibility
         if self.device_type == 'npu':
-            import torch_npu
-            torch_npu.npu.manual_seed(self.p.seed)
+            if hasattr(torch, 'npu') and torch.npu.is_available():
+                torch.npu.manual_seed(self.p.seed)
         elif self.device_type == 'gpu':
             torch.cuda.manual_seed(self.p.seed)
 
@@ -139,6 +140,9 @@ class Runner(object):
                     sub, rel, obj = self.ent2id[sub], self.rel2id[rel], self.ent2id[obj]
                     self.data[split].append((sub, rel, obj))
 
+        self.aux_confidence_map = self._load_confidence_map()
+        self.aux_triple_set = self._build_aux_triple_set()
+
         self.data = dict(self.data)
 
         self.sr2o = {k: list(v) for k, v in sr2o.items()}
@@ -215,6 +219,49 @@ class Runner(object):
             num_workers=num_workers,
             collate_fn=dataset_class.collate_fn
         )
+
+    def _load_confidence_map(self):
+        """加载辅助三元组置信度映射，返回 {(h_id, r_id, t_id): confidence}"""
+        conf_path = f'data/{self.p.dataset}/auxiliary_triples_confidence.json'
+        if not os.path.isfile(conf_path):
+            self.logger.info(f'Confidence map not found at {conf_path}, metrics collection disabled')
+            return {}
+        with open(conf_path, 'r', encoding='utf-8') as f:
+            raw = json.load(f)
+        conf_map = {}
+        for key_str, conf in raw.items():
+            parts = key_str.strip().split('\t')
+            if len(parts) == 3:
+                h, r, t = parts[0].lower(), parts[1].lower(), parts[2].lower()
+                h_id = self.ent2id.get(h)
+                r_id = self.rel2id.get(r)
+                t_id = self.ent2id.get(t)
+                if h_id is not None and r_id is not None and t_id is not None:
+                    conf_map[(h_id, r_id, t_id)] = conf
+                    r_inv_id = r_id + self.p.num_rel
+                    conf_map[(t_id, r_inv_id, h_id)] = conf
+        self.logger.info(f'Loaded confidence map with {len(conf_map)} entries')
+        return conf_map
+
+    def _build_aux_triple_set(self):
+        """构建辅助三元组 ID 集合，包含原始边和反向边"""
+        aux_set = set()
+        aux_path = f'data/{self.p.dataset}/auxiliary_triples.txt'
+        if not os.path.isfile(aux_path):
+            return aux_set
+        for line in open(aux_path):
+            parts = line.strip().split('\t')
+            if len(parts) == 3:
+                sub, rel, obj = parts[0].lower(), parts[1].lower(), parts[2].lower()
+                s_id = self.ent2id.get(sub)
+                r_id = self.rel2id.get(rel)
+                o_id = self.ent2id.get(obj)
+                if s_id is not None and r_id is not None and o_id is not None:
+                    aux_set.add((s_id, r_id, o_id))
+                    r_inv_id = r_id + self.p.num_rel
+                    aux_set.add((o_id, r_inv_id, s_id))
+        self.logger.info(f'Built aux triple set with {len(aux_set)} entries')
+        return aux_set
 
     def construct_adj(self):
         """
@@ -484,7 +531,7 @@ class Runner(object):
 
         return results
 
-    def run_epoch(self, epoch, val_mrr=0, clean_rate=1):
+    def run_epoch(self, epoch, val_mrr=0, clean_rate=1, metrics_collector=None):
         """
         Function to run one epoch of training
 
@@ -510,7 +557,10 @@ class Runner(object):
             elif self.p.loss_only_new > 0:
                 sub, rel, obj, label, obeserved_label, newadd_label = self.read_batch(batch, 'train')
                 pred = self.model.forward(sub, rel)
-                loss = self.model.modify_loss_only_add(pred, label, newadd_label, clean_rate)
+                loss = self.model.modify_loss_only_add(
+                    pred, label, newadd_label, clean_rate,
+                    metrics_collector=metrics_collector,
+                    epoch=epoch, sub_ids=sub, rel_ids=rel)
             else:
                 sub, rel, obj, label, obeserved_label, newadd_label = self.read_batch(batch, 'train')
                 pred = self.model.forward(sub, rel)
@@ -541,6 +591,16 @@ class Runner(object):
         self.best_val_mrr, self.best_val, self.best_epoch, val_mrr = 0., {}, 0, 0.
         save_path = os.path.join(self.p.save_dir, self.p.name + '.pth')
 
+        metrics_collector = None
+        if self.aux_confidence_map and self.aux_triple_set and self.p.loss_only_new > 0:
+            metrics_output_dir = os.path.join(self.p.save_dir, 'visualization_metrics')
+            metrics_collector = MetricsCollector(
+                aux_confidence_map=self.aux_confidence_map,
+                aux_triple_set=self.aux_triple_set,
+                output_dir=metrics_output_dir,
+            )
+            self.logger.info(f'Metrics collection enabled, output: {metrics_output_dir}')
+
         if self.p.restore:
             self.load_model(save_path)
             self.logger.info('Successfully Loaded previous model')
@@ -550,7 +610,20 @@ class Runner(object):
         clean_rate = 1  # init
 
         for epoch in range(self.p.max_epochs):
-            train_loss = self.run_epoch(epoch, val_mrr, clean_rate)
+            train_loss = self.run_epoch(epoch, val_mrr, clean_rate, metrics_collector=metrics_collector)
+
+            if metrics_collector is not None:
+                metrics_collector.finalize_epoch_loss(epoch)
+                if hasattr(self.model, 'conv1') and hasattr(self.model.conv1, 'last_alpha'):
+                    metrics_collector.record_epoch_alpha(
+                        epoch,
+                        self.model.conv1.last_alpha,
+                        self.model.conv1.last_edge_index,
+                        self.model.conv1.last_edge_type,
+                    )
+                if epoch % 30 == 0:
+                    metrics_collector.save_interim(epoch)
+
             val_results = self.evaluate('valid', epoch)
             if epoch % 30 == 0:
                 test_results = self.evaluate('test', epoch)
@@ -591,6 +664,11 @@ class Runner(object):
 
         self.logger.info('Loading best model, Evaluating on Test data')
         self.load_model(save_path)
+
+        if metrics_collector is not None:
+            metrics_path = metrics_collector.save()
+            self.logger.info(f'Suppression metrics saved to {metrics_path}')
+
         test_results = self.evaluate('test', epoch)
         self.logger.info('\nFinal Test set results:')
         self.logger.info(

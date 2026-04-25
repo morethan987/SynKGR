@@ -41,7 +41,7 @@ class TrainDataset(Dataset):
 	def get_neg_ent(self, triple, label):
 		def get(triple, label):
 			pos_obj		= label
-			mask		= np.ones([self.p.num_ent], dtype=np.bool)
+			mask		= np.ones([self.p.num_ent], dtype=bool)
 			mask[label]	= 0
 			neg_ent		= np.int32(np.random.choice(self.entities[mask], self.p.neg_num - len(label), replace=False)).reshape([-1])
 			neg_ent		= np.concatenate((pos_obj.reshape([-1]), neg_ent))
@@ -104,7 +104,7 @@ class TrainDataset_addLoss(Dataset):
 	def get_neg_ent(self, triple, label):
 		def get(triple, label):
 			pos_obj		= label
-			mask		= np.ones([self.p.num_ent], dtype=np.bool)
+			mask		= np.ones([self.p.num_ent], dtype=bool)
 			mask[label]	= 0
 			neg_ent		= np.int32(np.random.choice(self.entities[mask], self.p.neg_num - len(label), replace=False)).reshape([-1])
 			neg_ent		= np.concatenate((pos_obj.reshape([-1]), neg_ent))

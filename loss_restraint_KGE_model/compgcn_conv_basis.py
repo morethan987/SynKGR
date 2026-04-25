@@ -25,6 +25,7 @@ class CompGCNConvBasis(MessagePassing):
 
 		self.drop		= torch.nn.Dropout(self.p.dropout)
 		self.bn			= torch.nn.BatchNorm1d(out_channels)
+		self.b_norm		= True
 
 		self.in_norm, self.out_norm,
 		self.in_index, self.out_index,
