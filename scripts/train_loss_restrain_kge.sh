@@ -6,7 +6,7 @@
 #   bash scripts/train_loss_restrain_kge.sh FB15k-237N
 #
 
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=2
 
 # ==================== 参数解析 ====================
 DATASET="${1:-CoDEx-S}"
@@ -93,7 +93,7 @@ nohup python loss_restraint_KGE_model/run.py \
     --save "$OUTPUT_DIR" \
     --score_func conve \
     --opn corr \
-    --adapt_aggr -1 \
+    --adapt_aggr 1 \
     --loss_delta 0.002 \
     --batch 256 \
     --lr 5e-4 \

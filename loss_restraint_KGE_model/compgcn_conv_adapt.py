@@ -26,7 +26,7 @@ class CompGCNConv_adapt(MessagePassing):
 
 		self.w_attn     = get_param((3*in_channels, out_channels))
 
-		self.drop		= torch.nn.Dropout(self.p.dropout)
+		self.drop		= torch.nn.Dropout(self.p.dropout, self.training)
 		self.bn			= torch.nn.BatchNorm1d(out_channels)
 
 		self.leaky_relu = torch.nn.LeakyReLU(negative_slope=0.2, inplace=True)

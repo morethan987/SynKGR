@@ -19,7 +19,7 @@ class CompGCNConv(MessagePassing):
 		self.w_rel 		= get_param((in_channels, out_channels))
 		self.loop_rel 		= get_param((1, in_channels));
 
-		self.drop		= torch.nn.Dropout(self.p.dropout)
+		self.drop		= torch.nn.Dropout(self.p.dropout, self.training)
 		self.bn			= torch.nn.BatchNorm1d(out_channels)
 
 		if self.p.bias: self.register_parameter('bias', Parameter(torch.zeros(out_channels)))
