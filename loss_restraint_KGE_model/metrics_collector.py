@@ -1,12 +1,23 @@
 """
 训练过程中采集抑制效果指标
 用于可视化验证大损失约束和自适应消息聚合对低置信度辅助三元组的抑制效果
+
+分箱策略：语义分区 + 区内等频混合分箱
+  - Low 区 [0, 0.5): KG-BERT 认为可能错误，等频 2 子区间
+  - Mid 区 [0.5, 0.9): 不确定区间，等频 2 子区间
+  - High 区 [0.9, 1.0): KG-BERT 认为可能正确，等频 3 子区间
 """
 
 import os
 import json
 import numpy as np
 from collections import defaultdict
+
+LOW_THRESHOLD = 0.5
+HIGH_THRESHOLD = 0.9
+LOW_SUB_BINS = 2
+MID_SUB_BINS = 2
+HIGH_SUB_BINS = 3
 
 
 class MetricsCollector:
@@ -23,6 +34,16 @@ class MetricsCollector:
         self.aux_triple_set = aux_triple_set
         self.output_dir = output_dir
 
+        if aux_confidence_map:
+            self.bin_boundaries = self._compute_bin_boundaries(
+                list(aux_confidence_map.values())
+            )
+        else:
+            self.bin_boundaries = self._default_boundaries()
+        self.bin_labels = self._make_bin_labels()
+
+        self._print_bin_info()
+
         # Loss Restraint: 全局累积统计
         self.accumulated_drop_count = {}
         self.accumulated_loss_sum = {}
@@ -34,6 +55,78 @@ class MetricsCollector:
 
         # 最后一轮 epoch 的原始 alpha 分布（供 violin/box plot 使用）
         self.last_epoch_alpha_raw = {}
+
+    # ---- 分箱 ----
+
+    @staticmethod
+    def _compute_bin_boundaries(confidence_values):
+        """
+        语义分区 + 区内等频混合分箱
+        Args:
+            confidence_values: 所有辅助三元组的置信度列表
+        Returns:
+            boundaries: [b0, b1, ..., bN] 升序边界列表
+        """
+        vals = np.sort(np.array(confidence_values))
+
+        low_vals = vals[vals < LOW_THRESHOLD]
+        mid_vals = vals[(vals >= LOW_THRESHOLD) & (vals < HIGH_THRESHOLD)]
+        high_vals = vals[vals >= HIGH_THRESHOLD]
+
+        regions = [
+            (low_vals, LOW_SUB_BINS),
+            (mid_vals, MID_SUB_BINS),
+            (high_vals, HIGH_SUB_BINS),
+        ]
+
+        boundaries = [0.0]
+        for region_vals, n_sub in regions:
+            if len(region_vals) == 0:
+                continue
+            percentiles = np.linspace(0, 100, n_sub + 1)
+            edges = np.percentile(region_vals, percentiles)
+            boundaries.extend(edges[1:].tolist())
+
+        boundaries[-1] = 1.001
+        return boundaries
+
+    @staticmethod
+    def _default_boundaries():
+        return [0.0, 0.25, 0.5, 0.7, 0.85, 0.93, 0.97, 1.001]
+
+    def _bin_key(self, confidence):
+        for i in range(len(self.bin_boundaries) - 1):
+            lo = self.bin_boundaries[i]
+            hi = self.bin_boundaries[i + 1]
+            if lo <= confidence < hi:
+                return f"{lo:.4f}-{hi:.4f}"
+        last_lo = self.bin_boundaries[-2]
+        last_hi = self.bin_boundaries[-1]
+        return f"{last_lo:.4f}-{last_hi:.4f}"
+
+    def _make_bin_labels(self):
+        labels = []
+        for i in range(len(self.bin_boundaries) - 1):
+            lo = self.bin_boundaries[i]
+            hi = self.bin_boundaries[i + 1]
+            if hi <= LOW_THRESHOLD:
+                region = 'Low'
+            elif lo >= HIGH_THRESHOLD:
+                region = 'High'
+            else:
+                region = 'Mid'
+            labels.append({
+                'key': f"{lo:.4f}-{hi:.4f}",
+                'region': region,
+                'lo': lo,
+                'hi': hi,
+            })
+        return labels
+
+    def _print_bin_info(self):
+        print(f"MetricsCollector: {len(self.bin_labels)} bins (hybrid semantic + quantile)")
+        for lbl in self.bin_labels:
+            print(f"  [{lbl['lo']:.4f}, {lbl['hi']:.4f})  region={lbl['region']}")
 
     # ---- Loss Restraint 采集 ----
 
@@ -73,22 +166,15 @@ class MetricsCollector:
             if final_losses[i] == 0:
                 self.accumulated_drop_count[key] = self.accumulated_drop_count.get(key, 0) + 1
 
-    NUM_BINS = 20
-    BIN_WIDTH = 1.0 / NUM_BINS
-
-    def _bin_key(self, confidence):
-        bin_idx = min(int(confidence * self.NUM_BINS), self.NUM_BINS - 1)
-        lo = bin_idx * self.BIN_WIDTH
-        hi = lo + self.BIN_WIDTH
-        return f"{lo:.2f}-{hi:.2f}"
-
     def finalize_epoch_loss(self, epoch):
         """Epoch 结束时调用，按置信度区间汇总 loss restraint 指标"""
-        bins = {self._bin_key(i * self.BIN_WIDTH): {'total': 0, 'dropped': 0, 'loss_sum': 0.0}
-                for i in range(self.NUM_BINS)}
+        bins = {lbl['key']: {'total': 0, 'dropped': 0, 'loss_sum': 0.0}
+                for lbl in self.bin_labels}
         for key, count in self.accumulated_count.items():
             conf = self.aux_confidence_map.get(key, 0.5)
             bin_key = self._bin_key(conf)
+            if bin_key not in bins:
+                continue
             bins[bin_key]['total'] += count
             bins[bin_key]['dropped'] += self.accumulated_drop_count.get(key, 0)
             bins[bin_key]['loss_sum'] += self.accumulated_loss_sum.get(key, 0.0)
@@ -127,7 +213,7 @@ class MetricsCollector:
 
         aux_alphas = {
             'original': [],
-            **{self._bin_key(i * self.BIN_WIDTH): [] for i in range(self.NUM_BINS)}
+            **{lbl['key']: [] for lbl in self.bin_labels}
         }
 
         for i in range(num_edges):
@@ -140,7 +226,8 @@ class MetricsCollector:
             if key in self.aux_triple_set:
                 conf = self.aux_confidence_map.get(key, 0.5)
                 bin_key = self._bin_key(conf)
-                aux_alphas[bin_key].append(alpha_val)
+                if bin_key in aux_alphas:
+                    aux_alphas[bin_key].append(alpha_val)
             else:
                 aux_alphas['original'].append(alpha_val)
 
@@ -173,6 +260,11 @@ class MetricsCollector:
         """保存采集数据到磁盘"""
         os.makedirs(self.output_dir, exist_ok=True)
         data = {
+            'bin_config': {
+                'boundaries': self.bin_boundaries,
+                'labels': self.bin_labels,
+                'method': 'semantic_quantile_hybrid',
+            },
             'epoch_loss_summary': self.epoch_loss_summary,
             'epoch_alpha_summary': self.epoch_alpha_summary,
             'last_epoch_alpha_raw': {
@@ -192,6 +284,11 @@ class MetricsCollector:
         os.makedirs(self.output_dir, exist_ok=True)
         data = {
             'current_epoch': epoch,
+            'bin_config': {
+                'boundaries': self.bin_boundaries,
+                'labels': self.bin_labels,
+                'method': 'semantic_quantile_hybrid',
+            },
             'epoch_loss_summary': self.epoch_loss_summary,
             'epoch_alpha_summary': self.epoch_alpha_summary,
         }

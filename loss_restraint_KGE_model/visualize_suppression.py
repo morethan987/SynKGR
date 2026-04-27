@@ -1,40 +1,77 @@
-"""
-可视化两个技术点对辅助三元组的抑制效果
-输入: MetricsCollector 保存的 suppression_metrics.json
-输出: 多张分析图表
-
-核心规则：
-- MIN_SAMPLES: 每 epoch 平均样本数低于此阈值的 bin 视为统计不可靠，不纳入可视化
-- SMOOTH_WINDOW: 训练动态曲线的滑动平均窗口大小
-"""
-
 import json
 import argparse
+import os
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+import matplotlib.patches as mpatches
 import seaborn as sns
-
 
 sns.set_theme(style="whitegrid", font_scale=1.2)
 
-MIN_SAMPLES = 100
 SMOOTH_WINDOW = 15
 
+REGION_COLORS = {
+    'Low':  '#E74C3C', # 红色
+    'Mid':  '#8E44AD', # 紫色
+    'High': '#27AE60', # 绿色
+}
+
+REGION_LIGHT_COLORS = {
+    'Low':  '#FADBD8',
+    'Mid':  '#EBDEF0', # 浅紫色
+    'High': '#D5F5E3',
+}
+
+def _get_gradient_colors(labels_list):
+    """
+    为图3动态折线图生成渐变色。
+    通过更换色板并调整取色区间，确保 Low, Mid, High 三个大区之间有极高的区分度。
+    """
+    region_bins = {'Low': [], 'Mid': [], 'High':[]}
+    for lbl in labels_list:
+        region_bins[lbl.get('region', 'Mid')].append(lbl['key'])
+
+    color_map = {}
+
+    # Low: 使用红色系 (Reds)，跳过最浅色
+    if region_bins['Low']:
+        pal = sns.color_palette("Reds", len(region_bins['Low']) + 3)[2:]
+        for b, c in zip(region_bins['Low'], pal): color_map[b] = c
+
+    # Mid: 使用紫色系 (Purples) 替代橙色，紫色与红色/绿色在光谱上区分度极大
+    if region_bins['Mid']:
+        pal = sns.color_palette("Purples", len(region_bins['Mid']) + 3)[2:]
+        for b, c in zip(region_bins['Mid'], pal): color_map[b] = c
+
+    # High: 使用绿色系 (Greens)
+    if region_bins['High']:
+        pal = sns.color_palette("Greens", len(region_bins['High']) + 3)[2:]
+        for b, c in zip(region_bins['High'], pal): color_map[b] = c
+
+    color_map['original'] = '#3498DB' # 保持蓝色不变
+    return color_map
 
 def load_metrics(path):
     with open(path, 'r', encoding='utf-8') as f:
         data = json.load(f)
+    bin_config = data.get('bin_config', {})
     return (
         data.get('epoch_loss_summary', []),
-        data.get('epoch_alpha_summary', []),
+        data.get('epoch_alpha_summary',[]),
         data.get('last_epoch_alpha_raw', {}),
+        bin_config,
     )
 
+def _get_bin_labels(bin_config):
+    labels = bin_config.get('labels', [])
+    if labels:
+        return labels
+    return[]
 
 def _get_sorted_bins(records, key='confidence_bin'):
-    """从数据中自动提取并排序所有非空的 bin"""
     seen = set()
     for r in records:
         val = r.get(key, '')
@@ -42,32 +79,22 @@ def _get_sorted_bins(records, key='confidence_bin'):
             seen.add(val)
     return sorted(seen, key=lambda b: float(b.split('-')[0]))
 
-
 def _get_bin_sample_size(loss_summary, bin_key):
-    """获取某个 bin 的典型每 epoch 样本数（取中位数）"""
-    counts = [r['total_count'] for r in loss_summary
+    counts =[r['total_count'] for r in loss_summary
               if r['confidence_bin'] == bin_key and r['total_count'] > 0]
     return int(np.median(counts)) if counts else 0
 
-
-def _get_reliable_bins(loss_summary):
-    """返回统计可靠的 bin 列表（样本量 >= MIN_SAMPLES）及其样本数"""
-    all_bins = _get_sorted_bins(loss_summary, 'confidence_bin')
-    reliable = []
-    for b in all_bins:
-        n = _get_bin_sample_size(loss_summary, b)
-        if n >= MIN_SAMPLES:
-            reliable.append(b)
-    skipped = [b for b in all_bins if b not in reliable]
-    if skipped:
-        for b in skipped:
-            n = _get_bin_sample_size(loss_summary, b)
-            print(f"  [SKIP] {b}: n={n} < MIN_SAMPLES={MIN_SAMPLES}, 统计不可靠")
-    return reliable
-
+def _short_label(bin_key, bin_labels_list):
+    for i, lbl in enumerate(bin_labels_list):
+        if lbl['key'] == bin_key:
+            region = lbl['region']
+            prefix = region[0]
+            region_bins =[l for l in bin_labels_list if l['region'] == region]
+            sub_idx = region_bins.index(lbl) + 1
+            return f"{prefix}{sub_idx}"
+    return bin_key
 
 def _smooth(values, window=SMOOTH_WINDOW):
-    """滑动平均平滑"""
     if len(values) < window:
         return values
     kernel = np.ones(window) / window
@@ -79,45 +106,116 @@ def _smooth(values, window=SMOOTH_WINDOW):
     return smoothed.tolist()
 
 
-def plot_drop_rate_vs_confidence(loss_summary, output_dir):
-    """图表1: 大损失约束 vs 置信度 — Bar Chart"""
-    if not loss_summary:
-        print("[WARN] No loss summary data")
+def plot_confidence_histogram(bin_config, loss_summary, output_dir):
+    """fig0: 改进版 - 错位显示文字，防止窄区间文字重叠"""
+    boundaries = bin_config.get('boundaries',[])
+    labels_list = bin_config.get('labels',[])
+    if not boundaries or not labels_list:
         return
 
+    sample_sizes = {lbl['key']: _get_bin_sample_size(loss_summary, lbl['key']) for lbl in labels_list}
+
+    # 图拉宽一点，高度降一点
+    fig, ax = plt.subplots(figsize=(12, 4))
+
+    stagger_offsets =[0.15, -0.15] # 上下错位的 Y 坐标偏移量
+    stagger_idx = 0
+
+    for lbl in labels_list:
+        lo, hi = lbl['lo'], lbl['hi']
+        region = lbl['region']
+        width = hi - lo
+        n = sample_sizes.get(lbl['key'], 0)
+
+        color = REGION_LIGHT_COLORS.get(region, '#CCCCCC')
+        edge_color = REGION_COLORS.get(region, '#888888')
+
+        # 绘制矩形
+        ax.barh(0, width, left=lo, height=0.4, color=color,
+                edgecolor=edge_color, linewidth=1.5)
+
+        short = _short_label(lbl['key'], labels_list)
+
+        # 如果宽度太窄（<0.06），让文字上下错开显示，防止挤在一起
+        if width < 0.06:
+            text_y = stagger_offsets[stagger_idx % 2]
+            stagger_idx += 1
+        else:
+            text_y = 0
+
+        ax.text(lo + width / 2, text_y, f"{short}\nn={n}",
+                ha='center', va='center', fontsize=9, fontweight='bold')
+
+    for b in boundaries[1:-1]:
+        ax.axvline(x=b, color='gray', linestyle='--', alpha=0.7, linewidth=1)
+
+    # 绘制三大区的底部分区文字
+    ax.axvline(x=0.5, color='gray', linestyle=':', alpha=0.5)
+    ax.axvline(x=0.9, color='gray', linestyle=':', alpha=0.5)
+    ax.text(0.25, -0.35, 'Low', ha='center', fontsize=12, color=REGION_COLORS['Low'], fontweight='bold')
+    ax.text(0.7, -0.35, 'Mid', ha='center', fontsize=12, color=REGION_COLORS['Mid'], fontweight='bold')
+    ax.text(0.95, -0.35, 'High', ha='center', fontsize=12, color=REGION_COLORS['High'], fontweight='bold')
+
+    ax.set_xlim(-0.02, 1.02)
+    # 缩小 Y 轴无用空间
+    ax.set_ylim(-0.45, 0.35)
+    ax.set_xlabel('KG-BERT Confidence')
+    ax.set_title('Confidence Bin Layout (Semantic + Quantile Hybrid)')
+    ax.set_yticks([])
+
+    plt.tight_layout()
+    path = f'{output_dir}/fig0_confidence_bin_layout.png'
+    plt.savefig(path, dpi=200)
+    plt.close()
+    print(f"Saved: {path}")
+
+
+def plot_drop_rate_vs_confidence(loss_summary, bin_config, output_dir):
+    """fig1: 保持原样"""
+    if not loss_summary:
+        return
+
+    labels_list = _get_bin_labels(bin_config)
+    if not labels_list:
+        labels_list =[{'key': b, 'region': 'Mid', 'lo': 0, 'hi': 1}
+                       for b in _get_sorted_bins(loss_summary)]
+
+    bin_keys = [lbl['key'] for lbl in labels_list]
     last_epochs = sorted(set(r['epoch'] for r in loss_summary))[-5:]
     recent = [r for r in loss_summary if r['epoch'] in last_epochs]
 
-    bins_order = _get_reliable_bins(loss_summary)
-    if not bins_order:
-        print("[WARN] No reliable bins in loss summary")
-        return
-
-    data = {b: [] for b in bins_order}
+    data = {b:[] for b in bin_keys}
     for r in recent:
         b = r['confidence_bin']
         if b in data:
             data[b].append(r['drop_rate'])
 
-    means = [np.mean(data[b]) if data[b] else 0 for b in bins_order]
-    sample_sizes = [_get_bin_sample_size(loss_summary, b) for b in bins_order]
+    means = [np.mean(data[b]) if data[b] else 0 for b in bin_keys]
+    sample_sizes =[_get_bin_sample_size(loss_summary, b) for b in bin_keys]
 
-    n = len(bins_order)
-    fig_w = max(8, n * 0.8)
-    fig, ax = plt.subplots(figsize=(fig_w, 5))
-    colors = sns.color_palette("RdYlGn", n)
-    bars = ax.bar(range(n), means, color=colors, edgecolor='black', linewidth=0.5)
+    n = len(bin_keys)
+    fig, ax = plt.subplots(figsize=(max(10, n * 1.4), 6))
+
+    colors = [REGION_COLORS.get(lbl['region'], '#888888') for lbl in labels_list]
+    bars = ax.bar(range(n), means, color=colors, edgecolor='black', linewidth=0.8, width=0.7)
+
+    xtick_labels =[f"{_short_label(lbl['key'], labels_list)}\n[{lbl['lo']:.2f}, {lbl['hi']:.2f})\nn={s}"
+                    for lbl, s in zip(labels_list, sample_sizes)]
+
     ax.set_xticks(range(n))
-    labels_with_n = [f"{b}\n(n={s})" for b, s in zip(bins_order, sample_sizes)]
-    ax.set_xticklabels(labels_with_n, rotation=45, ha='right')
+    ax.set_xticklabels(xtick_labels, fontsize=9)
     ax.set_xlabel('Confidence Bin')
     ax.set_ylabel('Drop Rate')
-    ax.set_title('Loss Restraint: Drop Rate vs Discriminator Confidence\n(last 5 evaluation epochs)')
-    ax.set_ylim(0, float(max(means)) * 1.2 if max(means) > 0 else 1)
+    ax.set_title('Loss Restraint: Drop Rate vs KG-BERT Confidence\n(last 5 evaluation epochs)')
+    ax.set_ylim(0, float(max(means)) * 1.3 if max(means) > 0 else 1)
 
     for bar, val in zip(bars, means):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.002,
-                f'{val:.3f}', ha='center', va='bottom', fontsize=max(6, 10 - n // 5))
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.003,
+                f'{val:.3f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+
+    legend_patches = [mpatches.Patch(color=REGION_COLORS[r], label=f'{r} Region')
+                      for r in ['Low', 'Mid', 'High']]
+    ax.legend(handles=legend_patches, loc='upper right', fontsize=10)
 
     plt.tight_layout()
     path = f'{output_dir}/fig1_drop_rate_vs_confidence.png'
@@ -126,117 +224,134 @@ def plot_drop_rate_vs_confidence(loss_summary, output_dir):
     print(f"Saved: {path}")
 
 
-def plot_alpha_distribution(alpha_summary, alpha_raw, loss_summary, output_dir):
-    """图表2: 注意力权重分布 — Box Plot，带样本量标注"""
+
+def plot_alpha_distribution(alpha_summary, alpha_raw, bin_config, loss_summary, output_dir):
+    """fig2: 终极优化版小提琴图 - 极限放大核心区 + 细密刻度"""
     distributions = alpha_raw.get('distributions', {})
     epoch_label = alpha_raw.get('epoch', '?')
 
-    reliable_bins = _get_reliable_bins(loss_summary) if loss_summary else _get_sorted_bins(alpha_summary, 'group')
+    labels_list = _get_bin_labels(bin_config)
+    if not labels_list:
+        active = _get_sorted_bins(alpha_summary, 'group')
+        labels_list =[{'key': b, 'region': 'Mid', 'lo': 0, 'hi': 1} for b in active]
+
+    bin_keys = [lbl['key'] for lbl in labels_list]
 
     if distributions:
-        ordered_groups = [g for g in reliable_bins if g in distributions] + (
-            ['original'] if 'original' in distributions else [])
+        ordered_groups =[g for g in bin_keys if g in distributions]
+        if 'original' in distributions:
+            ordered_groups.append('original')
 
-        labels = []
-        plot_data = []
+        plot_labels, plot_data, colors = [], [],[]
+        color_map = _get_gradient_colors(labels_list)
+
         for g in ordered_groups:
             vals = distributions[g]
-            if vals:
-                label = f"Original\n(n={len(vals)})" if g == 'original' else f"{g}\n(n={len(vals)})"
-                labels.append(label)
-                plot_data.append(vals)
+            if not vals: continue
 
-        if plot_data:
-            n = len(labels)
-            fig_w = max(10, n * 1.2)
-            fig, ax = plt.subplots(figsize=(fig_w, 6))
-            bp = ax.boxplot(plot_data, patch_artist=True, showfliers=False, widths=0.6)
-            ax.set_xticklabels(labels, rotation=45, ha='right')
-            n_bins = len([l for l in labels if 'Original' not in l])
-            colors = list(sns.color_palette("Reds", max(n_bins, 1))) + (
-                [sns.color_palette("Blues")[3]] if 'original' in distributions else [])
-            for patch, color in zip(bp['boxes'], colors[:len(plot_data)]):
-                patch.set_facecolor(color)
-                patch.set_alpha(0.7)
+            short_lbl = "Original" if g == 'original' else _short_label(g, labels_list)
+            plot_labels.append(f"{short_lbl}\n(n={len(vals)})")
+            plot_data.append(vals)
+            colors.append(color_map.get(g, '#888888'))
 
-            # 标注统计摘要
-            stats_text = "Median: " + " | ".join(
-                f"{np.median(d):.4f}" for d in plot_data)
-            ax.text(0.02, 0.97, stats_text, transform=ax.transAxes,
-                    fontsize=7, verticalalignment='top',
-                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        if not plot_data: return
 
-            ax.set_ylabel('Attention Weight (alpha)')
-            ax.set_title(f'Adaptive Aggregation: Alpha Distribution by Confidence Group\n(Epoch {epoch_label})')
-            plt.tight_layout()
-            path = f'{output_dir}/fig2_alpha_distribution.png'
-            plt.savefig(path, dpi=200)
-            plt.close()
-            print(f"Saved: {path}")
-            return
+        fig, ax = plt.subplots(figsize=(max(12, len(plot_labels) * 1.5), 6))
 
-    if not alpha_summary:
-        print("[WARN] No alpha summary data")
-        return
+        # 绘制小提琴图，显示 25, 50, 75 分位线
+        vp = ax.violinplot(
+            plot_data,
+            positions=range(len(plot_labels)),
+            showmeans=False,
+            showmedians=False,
+            showextrema=False,
+            widths=0.8,
+            quantiles=[[0.25, 0.5, 0.75]] * len(plot_data)
+        )
 
-    last_epoch = max(r['epoch'] for r in alpha_summary)
-    recent = [r for r in alpha_summary if r['epoch'] == last_epoch]
+        if 'cquantiles' in vp:
+            vp['cquantiles'].set_color('black')
+            vp['cquantiles'].set_linewidth(1.0)
+            vp['cquantiles'].set_linestyle('--')
+            vp['cquantiles'].set_alpha(0.6)
 
-    groups = [g for g in reliable_bins] + ['original']
+        # 添加红色的均值散点
+        means =[np.mean(d) for d in plot_data]
+        ax.scatter(range(len(plot_labels)), means, color='red', zorder=3, s=45, label='Mean', edgecolors='white', linewidths=0.8)
 
-    means = []
-    q25_list = []
-    q75_list = []
-    labels = []
-    for g in groups:
-        for r in recent:
-            if r['group'] == g:
-                labels.append(g if g != 'original' else 'Original')
-                means.append(r['alpha_mean'])
-                q25_list.append(r.get('alpha_q25', r['alpha_mean'] - r['alpha_std']))
-                q75_list.append(r.get('alpha_q75', r['alpha_mean'] + r['alpha_std']))
-                break
+        for i, body in enumerate(vp['bodies']):
+            body.set_facecolor(colors[i])
+            body.set_alpha(0.7)
+            body.set_edgecolor('black')
+            body.set_linewidth(0.5)
 
-    if not means:
-        return
+        # ================= 核心修改区 =================
+        # 1. 精准锚定：获取所有组别中的最高均值和最高 80% 分位数
+        q80s =[np.percentile(d, 80) for d in plot_data]
+        core_max = max(max(q80s), max(means))
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    x = range(len(labels))
-    yerr_low = [max(0, m - q25) for m, q25 in zip(means, q25_list)]
-    yerr_high = [max(0, q75 - m) for m, q75 in zip(means, q75_list)]
-    ax.bar(x, means, yerr=[yerr_low, yerr_high], capsize=5,
-           edgecolor='black', linewidth=0.5)
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=45, ha='right')
-    ax.set_ylabel('Mean Attention Weight (alpha)')
-    ax.set_title(f'Adaptive Aggregation: Attention Weight by Confidence Group\n(Epoch {last_epoch})')
+        # 2. 极限放大：将上限卡在核心特征的 2.5 ~ 2.8 倍，把“胖肚子”彻底撑满屏幕
+        y_max = max(0.015, core_max * 2.8)
+        ax.set_ylim(bottom=-y_max * 0.05, top=y_max)
 
-    plt.tight_layout()
-    path = f'{output_dir}/fig2_alpha_distribution.png'
-    plt.savefig(path, dpi=200)
-    plt.close()
-    print(f"Saved: {path}")
+        # 3. 细化刻度：强制 Y 轴切分出 8~10 个主刻度，并加入次级网格线
+        ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=10, min_n_ticks=6))
+        ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(2))
+        ax.grid(True, which='major', axis='y', linestyle='-', alpha=0.7)
+        ax.grid(True, which='minor', axis='y', linestyle=':', alpha=0.4)
+        # ==============================================
+
+        ax.set_xticks(range(len(plot_labels)))
+        ax.set_xticklabels(plot_labels, fontsize=9)
+        ax.set_ylabel('Attention Weight (alpha)')
+        ax.set_title(f'Adaptive Aggregation: Alpha Distribution by Confidence Group\n(Epoch {epoch_label} | Y-axis strictly zoomed to core density)')
+
+        legend_items =[
+            mpatches.Patch(color=REGION_COLORS['Low'], label='Low Region'),
+            mpatches.Patch(color=REGION_COLORS['Mid'], label='Mid Region'),
+            mpatches.Patch(color=REGION_COLORS['High'], label='High Region'),
+            mpatches.Patch(color='#3498DB', label='Original'),
+            plt.Line2D([0], [0], color='black', linestyle='--', linewidth=1, label='25/50/75% Quantiles'),
+            plt.Line2D([0],[0], marker='o', color='w', markerfacecolor='red', markersize=8, label='Mean')
+        ]
+        ax.legend(handles=legend_items, loc='upper right', fontsize=9)
+
+        plt.tight_layout()
+        path = f'{output_dir}/fig2_alpha_distribution.png'
+        plt.savefig(path, dpi=200)
+        plt.close()
+        print(f"Saved: {path}")
 
 
-def plot_training_dynamics(loss_summary, alpha_summary, output_dir):
-    """图表3: 训练过程中抑制强度变化 — Line Chart（滑动平均平滑）"""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+def plot_training_dynamics(loss_summary, alpha_summary, bin_config, output_dir):
+    """fig3: 修复同区颜色相同 Bug，引入渐变色系"""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
 
-    reliable_bins = _get_reliable_bins(loss_summary)
+    labels_list = _get_bin_labels(bin_config)
+    if not labels_list:
+        labels_list =[{'key': b, 'region': 'Mid', 'lo': 0, 'hi': 1}
+                       for b in _get_sorted_bins(loss_summary)]
 
-    if loss_summary and reliable_bins:
-        for b in reliable_bins:
-            records = [r for r in loss_summary if r['confidence_bin'] == b and r['total_count'] > 0]
+    bin_keys = [lbl['key'] for lbl in labels_list]
+
+    # 核心修复点：获取每个 bin 专属的渐变色
+    color_map = _get_gradient_colors(labels_list)
+
+    if loss_summary:
+        for b, lbl in zip(bin_keys, labels_list):
+            records =[r for r in loss_summary if r['confidence_bin'] == b and r['total_count'] > 0]
             records.sort(key=lambda x: x['epoch'])
-            if not records:
-                continue
-            epochs = [r['epoch'] for r in records]
-            drop_rates = [r['drop_rate'] for r in records]
-            n = _get_bin_sample_size(loss_summary, b)
+            if not records: continue
 
-            ax1.plot(epochs, drop_rates, alpha=0.15, linewidth=0.8)
-            smoothed = _smooth(drop_rates)
-            ax1.plot(epochs, smoothed, linewidth=2, label=f"{b} (n={n})")
+            epochs = [r['epoch'] for r in records]
+            drop_rates =[r['drop_rate'] for r in records]
+            n = _get_bin_sample_size(loss_summary, b)
+            short = _short_label(b, labels_list)
+
+            line_color = color_map.get(b, '#888888')
+
+            ax1.plot(epochs, drop_rates, alpha=0.15, linewidth=0.8, color=line_color)
+            ax1.plot(epochs, _smooth(drop_rates), linewidth=2, color=line_color, label=f"{short} (n={n})")
 
         ax1.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
         ax1.set_xlabel('Epoch')
@@ -245,22 +360,23 @@ def plot_training_dynamics(loss_summary, alpha_summary, output_dir):
         ax1.legend(fontsize=8)
 
     alpha_bins = _get_sorted_bins(alpha_summary, 'group')
-    reliable_alpha = [b for b in alpha_bins if b in reliable_bins]
+    active_alpha =[b for b in bin_keys if b in alpha_bins]
 
     if alpha_summary:
-        groups = reliable_alpha + ['original']
+        groups = active_alpha + ['original']
         for g in groups:
-            records = [r for r in alpha_summary if r['group'] == g]
+            records =[r for r in alpha_summary if r['group'] == g]
             records.sort(key=lambda x: x['epoch'])
-            if not records:
-                continue
+            if not records: continue
+
             epochs = [r['epoch'] for r in records]
             alphas = [r['alpha_mean'] for r in records]
-            label = f"Original (n={records[0]['count']})" if g == 'original' else g
 
-            ax2.plot(epochs, alphas, alpha=0.15, linewidth=0.8)
-            smoothed = _smooth(alphas)
-            ax2.plot(epochs, smoothed, linewidth=2, label=label)
+            line_color = color_map.get(g, '#888888')
+            label = f"Original (n={records[0]['count']})" if g == 'original' else _short_label(g, labels_list)
+
+            ax2.plot(epochs, alphas, alpha=0.15, linewidth=0.8, color=line_color)
+            ax2.plot(epochs, _smooth(alphas), linewidth=2, color=line_color, label=label)
 
         ax2.set_xlabel('Epoch')
         ax2.set_ylabel('Mean Attention Weight')
@@ -275,46 +391,36 @@ def plot_training_dynamics(loss_summary, alpha_summary, output_dir):
 
 
 def _average_epochs(all_epochs, chunk_size=30):
-    """将 epoch 分组，每组取平均值，返回标签列表和分组映射"""
-    if not all_epochs:
-        return [], {}
+    if not all_epochs: return [], {}
     if len(all_epochs) <= chunk_size:
-        labels = [str(e) for e in all_epochs]
-        mapping = {e: i for i, e in enumerate(all_epochs)}
-        return labels, mapping
+        return[str(e) for e in all_epochs], {e: i for i, e in enumerate(all_epochs)}
 
-    mapping = {}
-    groups = {}
-    idx = 0
+    mapping, groups, idx = {}, {}, 0
     for i in range(0, len(all_epochs), chunk_size):
         chunk = all_epochs[i:i + chunk_size]
-        lo, hi = chunk[0], chunk[-1]
-        label = f"{lo}-{hi}"
-        groups[label] = idx
-        for e in chunk:
-            mapping[e] = idx
+        groups[f"{chunk[0]}-{chunk[-1]}"] = idx
+        for e in chunk: mapping[e] = idx
         idx += 1
     return list(groups.keys()), mapping
 
 
-def plot_suppression_heatmap(loss_summary, alpha_summary, output_dir):
-    """图表4: 综合抑制效应热力图 — 仅统计可靠的 bin，epoch 分组平均"""
+def plot_suppression_heatmap(loss_summary, alpha_summary, bin_config, output_dir):
+    """fig4: 保持原样"""
     if not loss_summary or not alpha_summary:
-        print("[WARN] No data for combined heatmap")
         return
 
-    active_bins = _get_reliable_bins(loss_summary)
-    if not active_bins:
-        print("[WARN] No reliable bins in loss summary")
-        return
+    labels_list = _get_bin_labels(bin_config)
+    if not labels_list:
+        labels_list =[{'key': b, 'region': 'Mid', 'lo': 0, 'hi': 1}
+                       for b in _get_sorted_bins(loss_summary)]
 
+    active_bins = [lbl['key'] for lbl in labels_list]
     epochs_loss = sorted(set(r['epoch'] for r in loss_summary))
     epochs_alpha = sorted(set(r['epoch'] for r in alpha_summary))
     common_epochs = sorted(set(epochs_loss) & set(epochs_alpha))
 
     use_epochs = common_epochs if common_epochs else epochs_loss
     has_alpha = bool(common_epochs)
-
     labels, epoch_to_group = _average_epochs(use_epochs, chunk_size=30)
     n_groups = len(labels)
 
@@ -323,39 +429,42 @@ def plot_suppression_heatmap(loss_summary, alpha_summary, output_dir):
         for r in alpha_summary:
             alpha_lookup.setdefault((r['epoch'], r['group']), []).append(r['alpha_mean'])
 
-    matrix = np.zeros((len(active_bins), n_groups))
-    counts = np.zeros((len(active_bins), n_groups))
+    matrix, counts = np.zeros((len(active_bins), n_groups)), np.zeros((len(active_bins), n_groups))
     for r in loss_summary:
         b = r['confidence_bin']
-        if b not in active_bins or r['epoch'] not in epoch_to_group:
-            continue
-        g_idx = epoch_to_group[r['epoch']]
-        row = active_bins.index(b)
-        dr = r['drop_rate']
+        if b not in active_bins or r['epoch'] not in epoch_to_group: continue
+        g_idx, row, dr = epoch_to_group[r['epoch']], active_bins.index(b), r['drop_rate']
+
         if has_alpha:
-            alphas = alpha_lookup.get((r['epoch'], b), [1.0])
-            alpha_avg = float(np.mean(alphas))
+            alpha_avg = float(np.mean(alpha_lookup.get((r['epoch'], b), [1.0])))
             suppression = (1.0 - alpha_avg) * dr
         else:
             suppression = dr
+
         matrix[row, g_idx] += suppression
         counts[row, g_idx] += 1
 
     mask = counts > 0
     matrix[mask] /= counts[mask]
 
-    fig_h = max(4, len(active_bins) * 0.7)
-    fig_w = max(8, n_groups * 1.2)
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    yticklabels = [f"{_short_label(lbl['key'], labels_list)} [{lbl['lo']:.2f}, {lbl['hi']:.2f})" for lbl in labels_list]
 
+    fig, ax = plt.subplots(figsize=(max(10, n_groups * 1.2), max(5, len(active_bins) * 1.0)))
     annot_fmt = '.4f' if matrix.max() < 0.01 else '.3f'
-    sns.heatmap(matrix, ax=ax, xticklabels=labels, yticklabels=active_bins,
+    sns.heatmap(matrix, ax=ax, xticklabels=labels, yticklabels=yticklabels,
                 cmap='YlOrRd', annot=True, fmt=annot_fmt, linewidths=0.5,
                 annot_kws={'size': max(7, 11 - len(active_bins) // 3)},
                 cbar_kws={'label': 'Suppression Index = (1 - α) × drop_rate'})
+
+    prev_region = None
+    for i, lbl in enumerate(labels_list):
+        if prev_region is not None and lbl['region'] != prev_region:
+            ax.axhline(y=i, color='black', linewidth=2)
+        prev_region = lbl['region']
+
     ax.set_xlabel('Epoch Range')
     ax.set_ylabel('Confidence Bin')
-    ax.set_title('Combined Suppression Heatmap')
+    ax.set_title('Combined Suppression Heatmap (KG-BERT Confidence)')
 
     plt.tight_layout()
     path = f'{output_dir}/fig4_suppression_heatmap.png'
@@ -370,22 +479,15 @@ def main():
     parser.add_argument('--output', default=None, help='Output directory for figures')
     args = parser.parse_args()
 
-    import os
     output_dir = args.output or os.path.dirname(args.input)
     os.makedirs(output_dir, exist_ok=True)
 
-    loss_summary, alpha_summary, alpha_raw = load_metrics(args.input)
-
-    print(f"Loaded {len(loss_summary)} loss records, {len(alpha_summary)} alpha records")
-    print(f"Filtering: MIN_SAMPLES={MIN_SAMPLES}")
-
-    plot_drop_rate_vs_confidence(loss_summary, output_dir)
-    plot_alpha_distribution(alpha_summary, alpha_raw, loss_summary, output_dir)
-    plot_training_dynamics(loss_summary, alpha_summary, output_dir)
-    plot_suppression_heatmap(loss_summary, alpha_summary, output_dir)
-
-    print("All visualizations done.")
-
+    loss_summary, alpha_summary, alpha_raw, bin_config = load_metrics(args.input)
+    plot_confidence_histogram(bin_config, loss_summary, output_dir)
+    plot_drop_rate_vs_confidence(loss_summary, bin_config, output_dir)
+    plot_alpha_distribution(alpha_summary, alpha_raw, bin_config, loss_summary, output_dir)
+    plot_training_dynamics(loss_summary, alpha_summary, bin_config, output_dir)
+    plot_suppression_heatmap(loss_summary, alpha_summary, bin_config, output_dir)
 
 if __name__ == '__main__':
     main()
