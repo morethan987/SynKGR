@@ -61,13 +61,13 @@ EMBEDDING_PATH="${LORA_PATH}/embeddings.pth"
 
 # ==================== 通用配置 ====================
 DISCRIMINATOR_FOLDER="$PWD/LLM_Discriminator"
+TIME_STAMP=$(date +%Y%m%d_%H%M%S)
 OUTPUT_DIR="MCTS/output/${DATASET,,}-${DISCRIMINATOR}/${TIME_STAMP}"
 PROCESSED_DATA="MCTS/output/processed_data_${DATASET,,}.pth"
 LOG_DIR='MCTS/logs'
-TIME_STAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="$LOG_DIR/${DATASET,,}_${DISCRIMINATOR}_${TIME_STAMP}.log"
 
-export CUDA_VISIBLE_DEVICES=0,1,2
+export CUDA_VISIBLE_DEVICES=0,1
 export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=29503
 export TOKENIZERS_PARALLELISM=false
