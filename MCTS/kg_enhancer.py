@@ -1,3 +1,4 @@
+import os
 from typing import List, Dict, Set, Tuple, Optional
 
 from kg_data_loader import KGDataLoader
@@ -37,6 +38,7 @@ class KGEnhancer:
                  kgbert_model_dir: str = None,
                  kgbert_data_dir: str = None,
                  kge_discriminator_path: str = None,
+                 valid_path: str = None,
     ):
         """
         初始化知识图谱增强器
@@ -54,6 +56,7 @@ class KGEnhancer:
         self.logger = setup_logger(self.__class__.__name__)
         self.rank = rank
         self.output_folder = output_folder
+        self.valid_path = valid_path
         self.local_discovered_triplets = set()
 
         # 配置参数
@@ -158,12 +161,21 @@ class KGEnhancer:
             return discriminator
         elif discriminator_type == "kge":
             from kge_discriminator import KGEDiscriminator
-            return KGEDiscriminator(
+            discriminator = KGEDiscriminator(
                 model_path=kge_discriminator_path,
                 model_name="RotatE",
                 device=device,
                 batch_size=batch_size,
             )
+            valid_ids = self._load_valid_triple_ids()
+            if valid_ids:
+                self.logger.info(
+                    f"Calibrating KGE discriminator with {len(valid_ids)} validation triples")
+                discriminator.calibrate(valid_ids)
+            else:
+                self.logger.warning(
+                    "No validation triples found, using default threshold for KGE discriminator")
+            return discriminator
         elif discriminator_type == "random":
             from random_discriminator import RandomDiscriminator
             return RandomDiscriminator(positive_rate=0.5)
@@ -172,6 +184,28 @@ class KGEnhancer:
                 f"Unknown discriminator type: '{discriminator_type}'. "
                 f"Supported: 'llm', 'kgbert', 'kge', 'random'"
             )
+
+    def _load_valid_triple_ids(self):
+        """加载验证集三元组并转换为 embedding ID 格式，用于 KGE 判别器校准"""
+        valid_path = self.valid_path
+        if valid_path is None or not os.path.isfile(valid_path):
+            return []
+
+        entity2id = self.data_loader.entity2id
+        relation2id = self.data_loader.relation2id
+        valid_ids = []
+
+        with open(valid_path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split("\t")
+                if len(parts) == 3:
+                    h_id = entity2id.get(parts[0])
+                    r_id = relation2id.get(parts[1])
+                    t_id = entity2id.get(parts[2])
+                    if h_id is not None and r_id is not None and t_id is not None:
+                        valid_ids.append((h_id, r_id, t_id))
+
+        return valid_ids
 
     def enhance_entity_relation(self, sparse_entity: str, position: str, relation: str) -> Set[Tuple[str, str, str]]:
         """

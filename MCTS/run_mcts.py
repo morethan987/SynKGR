@@ -58,6 +58,7 @@ class Runner:
             kgbert_model_dir=self.args.kgbert_model_dir,
             kgbert_data_dir=self.args.kgbert_data_dir,
             kge_discriminator_path=self.args.kge_discriminator_path,
+            valid_path=f"{self.data_folder}/valid.txt",
         )
 
         self.all_discovered_triplets = set()
