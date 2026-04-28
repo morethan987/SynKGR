@@ -73,7 +73,7 @@ class TriplesDiscriminator(BaseDiscriminator):
         self.model.config.eos_token_id = 2
 
         # 5. Load knowledge graph embeddings
-        self.kg_embeddings = torch.load(self.embedding_path).to(self.device)
+        self.kg_embeddings = torch.load(self.embedding_path, map_location=self.device)
 
         # 6. Set model to evaluation mode
         self.model.eval()
