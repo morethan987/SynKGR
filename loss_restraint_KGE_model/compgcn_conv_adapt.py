@@ -86,7 +86,7 @@ class CompGCNConv_adapt(MessagePassing):
 		b = self.leaky_relu(torch.mm((torch.cat((x_i, rel_emb, x_j), dim=1)), self.w_attn))
 		b = self.a(b).float()
 		alpha = softmax(b, index, ptr, size_i)
-		self.alpha = alpha.detach()
+		self.alpha = alpha.detach() # get attention weights before dropout
 		alpha = F.dropout(alpha, p=self.drop_ratio)
 		trans_in_norm = trans_in * in_norm.view(-1, 1)
 		trans_out_norm = trans_out * out_norm.view(-1, 1)

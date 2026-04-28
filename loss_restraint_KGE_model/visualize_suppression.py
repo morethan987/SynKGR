@@ -25,6 +25,15 @@ REGION_LIGHT_COLORS = {
     'High': '#D5F5E3',
 }
 
+NEIGHBORHOOD_COLORS = {
+    'Low':           '#E74C3C',
+    'Mid':           '#8E44AD',
+    'High':          '#27AE60',
+    'original_only': '#3498DB',
+}
+
+NEIGHBORHOOD_REGION_ORDER = ['Low', 'Mid', 'High', 'original_only']
+
 def _get_gradient_colors(labels_list):
     """
     为图3动态折线图生成渐变色。
@@ -63,6 +72,8 @@ def load_metrics(path):
         data.get('epoch_alpha_summary',[]),
         data.get('last_epoch_alpha_raw', {}),
         bin_config,
+        data.get('epoch_neighborhood_summary', []),
+        data.get('last_epoch_neighborhood_raw', {}),
     )
 
 def _get_bin_labels(bin_config):
@@ -473,6 +484,141 @@ def plot_suppression_heatmap(loss_summary, alpha_summary, bin_config, output_dir
     print(f"Saved: {path}")
 
 
+def plot_neighborhood_kl_distribution(neighborhood_raw, output_dir):
+    """fig5: Density plot of per-node KL divergence from uniform attention"""
+    per_region = neighborhood_raw.get('per_region', {})
+    epoch_label = neighborhood_raw.get('epoch', '?')
+
+    if not per_region:
+        return
+
+    existing = [r for r in NEIGHBORHOOD_REGION_ORDER
+                if r in per_region and per_region[r].get('kl')]
+    if not existing:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    for region in existing:
+        kl_vals = np.array(per_region[region]['kl'])
+        p99 = np.percentile(kl_vals, 99)
+        kl_clipped = np.clip(kl_vals, 0, p99)
+        color = NEIGHBORHOOD_COLORS.get(region, '#888888')
+        label = f"{region} (n={len(kl_vals)}, median={np.median(kl_vals):.4f})"
+        sns.kdeplot(kl_clipped, ax=ax, color=color, label=label,
+                    linewidth=2, fill=True, alpha=0.15)
+
+    ax.axvline(x=0, color='black', linestyle='--', linewidth=1.5,
+               alpha=0.7, label='Uniform baseline (KL=0)')
+    ax.set_xlabel('KL Divergence from Uniform')
+    ax.set_ylabel('Density')
+    ax.set_title(f'Neighborhood Attention Deviation from Uniform\n'
+                 f'(Epoch {epoch_label} | Per-node KL divergence, deg >= 2 only)')
+    ax.legend(fontsize=9)
+
+    plt.tight_layout()
+    path = f'{output_dir}/fig5_neighborhood_kl_distribution.png'
+    plt.savefig(path, dpi=200)
+    plt.close()
+    print(f"Saved: {path}")
+
+
+def plot_neighborhood_maxratio_boxplot(neighborhood_raw, output_dir):
+    """fig6: Box plots of MaxRatio by region"""
+    per_region = neighborhood_raw.get('per_region', {})
+    epoch_label = neighborhood_raw.get('epoch', '?')
+
+    if not per_region:
+        return
+
+    existing = [r for r in NEIGHBORHOOD_REGION_ORDER
+                if r in per_region and per_region[r].get('max_ratio')]
+    if not existing:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    plot_data, plot_labels, colors = [], [], []
+    for region in existing:
+        mr_vals = np.array(per_region[region]['max_ratio'])
+        p99 = np.percentile(mr_vals, 99)
+        clipped = np.clip(mr_vals, 0, p99)
+        plot_data.append(clipped)
+        n = len(mr_vals)
+        median = np.median(mr_vals)
+        plot_labels.append(f"{region}\nn={n}\nmed={median:.2f}")
+        colors.append(NEIGHBORHOOD_COLORS.get(region, '#888888'))
+
+    bp = ax.boxplot(plot_data, patch_artist=True, widths=0.6,
+                    medianprops=dict(color='black', linewidth=2),
+                    whiskerprops=dict(linewidth=1.2),
+                    capprops=dict(linewidth=1.2))
+
+    for patch, color in zip(bp['boxes'], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.6)
+
+    ax.axhline(y=1.0, color='gray', linestyle='--', linewidth=1.5,
+               alpha=0.7, label='Uniform baseline (ratio=1)')
+    ax.set_xticklabels(plot_labels, fontsize=10)
+    ax.set_ylabel('Max Attention Weight / Uniform Weight')
+    ax.set_title(f'Attention Concentration by Node Neighborhood\n'
+                 f'(Epoch {epoch_label} | MaxRatio = max(α) / (1/deg))')
+    ax.legend(fontsize=10)
+
+    plt.tight_layout()
+    path = f'{output_dir}/fig6_neighborhood_maxratio_boxplot.png'
+    plt.savefig(path, dpi=200)
+    plt.close()
+    print(f"Saved: {path}")
+
+
+def plot_attention_deviation_dynamics(neighborhood_summary, output_dir):
+    """fig7: Mean KL divergence and CV over training epochs"""
+    if not neighborhood_summary:
+        return
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+    for region in NEIGHBORHOOD_REGION_ORDER:
+        records = [r for r in neighborhood_summary if r['region'] == region]
+        if not records:
+            continue
+        records.sort(key=lambda x: x['epoch'])
+
+        epochs = [r['epoch'] for r in records]
+        kl_means = [r['kl_mean'] for r in records]
+        cv_means = [r['cv_mean'] for r in records]
+        n = records[-1]['node_count']
+
+        color = NEIGHBORHOOD_COLORS.get(region, '#888888')
+        label = f"{region} (n~{n})"
+
+        ax1.plot(epochs, kl_means, alpha=0.15, linewidth=0.8, color=color)
+        ax1.plot(epochs, _smooth(kl_means), linewidth=2, color=color, label=label)
+
+        ax2.plot(epochs, cv_means, alpha=0.15, linewidth=0.8, color=color)
+        ax2.plot(epochs, _smooth(cv_means), linewidth=2, color=color, label=label)
+
+    ax1.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.5)
+    ax1.set_xlabel('Epoch')
+    ax1.set_ylabel('Mean KL Divergence')
+    ax1.set_title('Neighborhood Attention Deviation (KL)')
+    ax1.legend(fontsize=9)
+
+    ax2.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.5)
+    ax2.set_xlabel('Epoch')
+    ax2.set_ylabel('Mean CV of Attention Weights')
+    ax2.set_title('Neighborhood Attention Deviation (CV)')
+    ax2.legend(fontsize=9)
+
+    plt.tight_layout()
+    path = f'{output_dir}/fig7_attention_deviation_dynamics.png'
+    plt.savefig(path, dpi=200)
+    plt.close()
+    print(f"Saved: {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Visualize suppression metrics')
     parser.add_argument('--input', required=True, help='Path to suppression_metrics.json')
@@ -482,12 +628,15 @@ def main():
     output_dir = args.output or os.path.dirname(args.input)
     os.makedirs(output_dir, exist_ok=True)
 
-    loss_summary, alpha_summary, alpha_raw, bin_config = load_metrics(args.input)
+    loss_summary, alpha_summary, alpha_raw, bin_config, neighborhood_summary, neighborhood_raw = load_metrics(args.input)
     plot_confidence_histogram(bin_config, loss_summary, output_dir)
     plot_drop_rate_vs_confidence(loss_summary, bin_config, output_dir)
     plot_alpha_distribution(alpha_summary, alpha_raw, bin_config, loss_summary, output_dir)
     plot_training_dynamics(loss_summary, alpha_summary, bin_config, output_dir)
     plot_suppression_heatmap(loss_summary, alpha_summary, bin_config, output_dir)
+    plot_neighborhood_kl_distribution(neighborhood_raw, output_dir)
+    plot_neighborhood_maxratio_boxplot(neighborhood_raw, output_dir)
+    plot_attention_deviation_dynamics(neighborhood_summary, output_dir)
 
 if __name__ == '__main__':
     main()

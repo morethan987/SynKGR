@@ -26,8 +26,8 @@ case "$DATASET" in
     CoDEx-S)
         NAME='codex_train'
         OUTPUT_BASE='loss_restraint_KGE_model/output/codex-s'
-        AUX_TRIPLES="MCTS/output/codex-s-kgbert/20260427_155812/discovered_triplets.txt"
-        AUX_CONFIDENCE="MCTS/output/codex-s-kgbert/20260427_155812/auxiliary_triples_confidence.json"
+        AUX_TRIPLES="MCTS/output/codex-s-kge/20260424_223000/discovered_triplets.txt"
+        AUX_CONFIDENCE="MCTS/output/codex-s-kge/20260424_223000/auxiliary_triples_confidence_kgbert.json"
         ;;
     FB15k-237N)
         NAME='fb15k_train'

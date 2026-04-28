@@ -56,6 +56,10 @@ class MetricsCollector:
         # 最后一轮 epoch 的原始 alpha 分布（供 violin/box plot 使用）
         self.last_epoch_alpha_raw = {}
 
+        # Neighborhood attention deviation metrics
+        self.epoch_neighborhood_summary = []
+        self.last_epoch_neighborhood_raw = {}
+
     # ---- 分箱 ----
 
     @staticmethod
@@ -254,6 +258,84 @@ class MetricsCollector:
             if alphas:
                 self.last_epoch_alpha_raw['distributions'][bin_key] = alphas
 
+        # ---- Neighborhood attention deviation ----
+        node_alphas = defaultdict(list)
+        node_aux_confs = defaultdict(list)
+
+        for i in range(num_edges):
+            dst = dst_cpu[i].item()
+            src = src_cpu[i].item()
+            rel = rel_cpu[i].item()
+            alpha_val = alpha_cpu[i].item()
+
+            node_alphas[dst].append(alpha_val)
+
+            key = (src, rel, dst)
+            if key in self.aux_triple_set:
+                conf = self.aux_confidence_map.get(key, 0.5)
+                node_aux_confs[dst].append(conf)
+
+        region_data = defaultdict(lambda: {'kl': [], 'max_ratio': [], 'cv': [], 'degree': []})
+
+        for dst, alphas in node_alphas.items():
+            deg = len(alphas)
+            if deg < 2:
+                continue
+
+            alpha_arr = np.array(alphas)
+            uniform_val = 1.0 / deg
+
+            kl = float(np.sum(alpha_arr * np.log(alpha_arr / uniform_val + 1e-10)))
+            max_ratio = float(np.max(alpha_arr) / uniform_val)
+            cv_val = float(np.std(alpha_arr) / (np.mean(alpha_arr) + 1e-10))
+
+            if dst in node_aux_confs and node_aux_confs[dst]:
+                min_conf = min(node_aux_confs[dst])
+                if min_conf < LOW_THRESHOLD:
+                    region = 'Low'
+                elif min_conf >= HIGH_THRESHOLD:
+                    region = 'High'
+                else:
+                    region = 'Mid'
+            else:
+                region = 'original_only'
+
+            region_data[region]['kl'].append(kl)
+            region_data[region]['max_ratio'].append(max_ratio)
+            region_data[region]['cv'].append(cv_val)
+            region_data[region]['degree'].append(deg)
+
+        for region, rdata in region_data.items():
+            if not rdata['kl']:
+                continue
+            self.epoch_neighborhood_summary.append({
+                'epoch': epoch,
+                'region': region,
+                'kl_mean': float(np.mean(rdata['kl'])),
+                'kl_std': float(np.std(rdata['kl'])),
+                'kl_median': float(np.median(rdata['kl'])),
+                'max_ratio_mean': float(np.mean(rdata['max_ratio'])),
+                'max_ratio_std': float(np.std(rdata['max_ratio'])),
+                'max_ratio_median': float(np.median(rdata['max_ratio'])),
+                'cv_mean': float(np.mean(rdata['cv'])),
+                'cv_std': float(np.std(rdata['cv'])),
+                'cv_median': float(np.median(rdata['cv'])),
+                'node_count': len(rdata['kl']),
+            })
+
+        self.last_epoch_neighborhood_raw = {
+            'epoch': epoch,
+            'per_region': {},
+        }
+        for region, rdata in region_data.items():
+            if rdata['kl']:
+                self.last_epoch_neighborhood_raw['per_region'][region] = {
+                    'kl': rdata['kl'],
+                    'max_ratio': rdata['max_ratio'],
+                    'cv': rdata['cv'],
+                    'degree': rdata['degree'],
+                }
+
     # ---- 持久化 ----
 
     def save(self):
@@ -271,6 +353,13 @@ class MetricsCollector:
                 'epoch': self.last_epoch_alpha_raw.get('epoch', -1),
                 'distributions': {
                     k: v for k, v in self.last_epoch_alpha_raw.get('distributions', {}).items()
+                },
+            },
+            'epoch_neighborhood_summary': self.epoch_neighborhood_summary,
+            'last_epoch_neighborhood_raw': {
+                'epoch': self.last_epoch_neighborhood_raw.get('epoch', -1),
+                'per_region': {
+                    k: v for k, v in self.last_epoch_neighborhood_raw.get('per_region', {}).items()
                 },
             },
         }
@@ -291,6 +380,7 @@ class MetricsCollector:
             },
             'epoch_loss_summary': self.epoch_loss_summary,
             'epoch_alpha_summary': self.epoch_alpha_summary,
+            'epoch_neighborhood_summary': self.epoch_neighborhood_summary,
         }
         save_path = os.path.join(self.output_dir, f'suppression_metrics_ep{epoch}.json')
         with open(save_path, 'w', encoding='utf-8') as f:
