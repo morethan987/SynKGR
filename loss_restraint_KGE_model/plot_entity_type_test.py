@@ -1,6 +1,6 @@
 # 绘制不同度数实体表现差异的代码
 # 使用:
-# cdko && acko && python loss_restraint_KGE_model/plot_entity_type_test.py
+# python loss_restraint_KGE_model/plot_entity_type_test.py
 
 # Entity performance: [0.31, 0.20, 0.19, 0.38, 0.46, 0.68, 0.53, 0.71]
 
@@ -28,7 +28,7 @@ import matplotlib.font_manager as fm
 from matplotlib import rcParams
 
 # --- 1. 字体设置 ---
-chinese_font_path = '/data/yitingting/moran/KoGReD/loss_restraint_KGE_model/SourceHanSerifSC-Regular.otf'
+chinese_font_path = '/data/yitingting/github/SynKGR/assets/fonts/SourceHanSerifSC-Regular.otf'
 if os.path.exists(chinese_font_path):
     fm.fontManager.addfont(chinese_font_path)
     chinese_font_name = 'Source Han Serif SC'

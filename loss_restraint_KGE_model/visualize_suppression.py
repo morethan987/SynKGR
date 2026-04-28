@@ -7,9 +7,24 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import matplotlib.patches as mpatches
+import matplotlib.font_manager as fm
+from matplotlib import rcParams
 import seaborn as sns
 
 sns.set_theme(style="whitegrid", font_scale=1.2)
+
+# --- 中文字体设置 ---
+chinese_font_path = '/data/yitingting/github/SynKGR/assets/fonts/SourceHanSerifSC-Regular.otf'
+if os.path.exists(chinese_font_path):
+    fm.fontManager.addfont(chinese_font_path)
+    chinese_font_name = 'Source Han Serif SC'
+    rcParams['font.serif'] = [chinese_font_name, 'Times New Roman', 'Times', 'serif']
+    rcParams['font.family'] = 'serif'
+else:
+    rcParams['font.family'] = 'serif'
+    rcParams['font.serif'] = ['Times New Roman', 'Times', 'serif']
+
+rcParams['axes.unicode_minus'] = False
 
 SMOOTH_WINDOW = 15
 
@@ -170,8 +185,8 @@ def plot_confidence_histogram(bin_config, loss_summary, output_dir):
     ax.set_xlim(-0.02, 1.02)
     # 缩小 Y 轴无用空间
     ax.set_ylim(-0.45, 0.35)
-    ax.set_xlabel('KG-BERT Confidence')
-    ax.set_title('Confidence Bin Layout (Semantic + Quantile Hybrid)')
+    ax.set_xlabel('KG-BERT 置信度')
+    ax.set_title('置信度分箱布局')
     ax.set_yticks([])
 
     plt.tight_layout()
@@ -215,16 +230,17 @@ def plot_drop_rate_vs_confidence(loss_summary, bin_config, output_dir):
 
     ax.set_xticks(range(n))
     ax.set_xticklabels(xtick_labels, fontsize=9)
-    ax.set_xlabel('Confidence Bin')
-    ax.set_ylabel('Drop Rate')
-    ax.set_title('Loss Restraint: Drop Rate vs KG-BERT Confidence\n(last 5 evaluation epochs)')
+    ax.set_xlabel('置信度分箱')
+    ax.set_ylabel('丢弃率')
+    ax.set_title('丢弃率 vs KG-BERT 置信度\n（最近 5 个评估轮次）')
     ax.set_ylim(0, float(max(means)) * 1.3 if max(means) > 0 else 1)
 
     for bar, val in zip(bars, means):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.003,
                 f'{val:.3f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
 
-    legend_patches = [mpatches.Patch(color=REGION_COLORS[r], label=f'{r} Region')
+    region_cn = {'Low': '低置信区', 'Mid': '中置信区', 'High': '高置信区'}
+    legend_patches = [mpatches.Patch(color=REGION_COLORS[r], label=region_cn[r])
                       for r in ['Low', 'Mid', 'High']]
     ax.legend(handles=legend_patches, loc='upper right', fontsize=10)
 
@@ -260,7 +276,7 @@ def plot_alpha_distribution(alpha_summary, alpha_raw, bin_config, loss_summary, 
             vals = distributions[g]
             if not vals: continue
 
-            short_lbl = "Original" if g == 'original' else _short_label(g, labels_list)
+            short_lbl = "原始" if g == 'original' else _short_label(g, labels_list)
             plot_labels.append(f"{short_lbl}\n(n={len(vals)})")
             plot_data.append(vals)
             colors.append(color_map.get(g, '#888888'))
@@ -314,16 +330,16 @@ def plot_alpha_distribution(alpha_summary, alpha_raw, bin_config, loss_summary, 
 
         ax.set_xticks(range(len(plot_labels)))
         ax.set_xticklabels(plot_labels, fontsize=9)
-        ax.set_ylabel('Attention Weight (alpha)')
-        ax.set_title(f'Adaptive Aggregation: Alpha Distribution by Confidence Group\n(Epoch {epoch_label} | Y-axis strictly zoomed to core density)')
+        ax.set_ylabel('注意力权重 (alpha)')
+        ax.set_title(f'自适应聚合：按置信度分组的 Alpha 分布\n（轮次 {epoch_label} | Y 轴严格缩放至核心密度）')
 
         legend_items =[
-            mpatches.Patch(color=REGION_COLORS['Low'], label='Low Region'),
-            mpatches.Patch(color=REGION_COLORS['Mid'], label='Mid Region'),
-            mpatches.Patch(color=REGION_COLORS['High'], label='High Region'),
-            mpatches.Patch(color='#3498DB', label='Original'),
-            plt.Line2D([0], [0], color='black', linestyle='--', linewidth=1, label='25/50/75% Quantiles'),
-            plt.Line2D([0],[0], marker='o', color='w', markerfacecolor='red', markersize=8, label='Mean')
+            mpatches.Patch(color=REGION_COLORS['Low'], label='低置信区'),
+            mpatches.Patch(color=REGION_COLORS['Mid'], label='中置信区'),
+            mpatches.Patch(color=REGION_COLORS['High'], label='高置信区'),
+            mpatches.Patch(color='#3498DB', label='原始'),
+            plt.Line2D([0], [0], color='black', linestyle='--', linewidth=1, label='25/50/75% 分位数'),
+            plt.Line2D([0],[0], marker='o', color='w', markerfacecolor='red', markersize=8, label='均值')
         ]
         ax.legend(handles=legend_items, loc='upper right', fontsize=9)
 
@@ -334,9 +350,9 @@ def plot_alpha_distribution(alpha_summary, alpha_raw, bin_config, loss_summary, 
         print(f"Saved: {path}")
 
 
-def plot_training_dynamics(loss_summary, alpha_summary, bin_config, output_dir):
-    """fig3: 修复同区颜色相同 Bug，引入渐变色系"""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+def plot_training_dynamics_loss(loss_summary, bin_config, output_dir):
+    """fig3a: 损失抑制动态"""
+    fig, ax1 = plt.subplots(figsize=(8, 6))
 
     labels_list = _get_bin_labels(bin_config)
     if not labels_list:
@@ -344,8 +360,6 @@ def plot_training_dynamics(loss_summary, alpha_summary, bin_config, output_dir):
                        for b in _get_sorted_bins(loss_summary)]
 
     bin_keys = [lbl['key'] for lbl in labels_list]
-
-    # 核心修复点：获取每个 bin 专属的渐变色
     color_map = _get_gradient_colors(labels_list)
 
     if loss_summary:
@@ -365,10 +379,29 @@ def plot_training_dynamics(loss_summary, alpha_summary, bin_config, output_dir):
             ax1.plot(epochs, _smooth(drop_rates), linewidth=2, color=line_color, label=f"{short} (n={n})")
 
         ax1.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
-        ax1.set_xlabel('Epoch')
-        ax1.set_ylabel('Drop Rate')
-        ax1.set_title('Loss Restraint Dynamics (smoothed)')
+        ax1.set_xlabel('轮次')
+        ax1.set_ylabel('丢弃率')
+        ax1.set_title('损失抑制动态')
         ax1.legend(fontsize=8)
+
+    plt.tight_layout()
+    path = f'{output_dir}/fig3a_training_dynamics_loss.png'
+    plt.savefig(path, dpi=200)
+    plt.close()
+    print(f"Saved: {path}")
+
+
+def plot_training_dynamics_alpha(alpha_summary, bin_config, output_dir):
+    """fig3b: 自适应聚合动态"""
+    fig, ax2 = plt.subplots(figsize=(8, 6))
+
+    labels_list = _get_bin_labels(bin_config)
+    if not labels_list:
+        labels_list =[{'key': b, 'region': 'Mid', 'lo': 0, 'hi': 1}
+                       for b in _get_sorted_bins(alpha_summary, 'group')]
+
+    bin_keys = [lbl['key'] for lbl in labels_list]
+    color_map = _get_gradient_colors(labels_list)
 
     alpha_bins = _get_sorted_bins(alpha_summary, 'group')
     active_alpha =[b for b in bin_keys if b in alpha_bins]
@@ -384,18 +417,18 @@ def plot_training_dynamics(loss_summary, alpha_summary, bin_config, output_dir):
             alphas = [r['alpha_mean'] for r in records]
 
             line_color = color_map.get(g, '#888888')
-            label = f"Original (n={records[0]['count']})" if g == 'original' else _short_label(g, labels_list)
+            label = f"原始 (n={records[0]['count']})" if g == 'original' else _short_label(g, labels_list)
 
             ax2.plot(epochs, alphas, alpha=0.15, linewidth=0.8, color=line_color)
             ax2.plot(epochs, _smooth(alphas), linewidth=2, color=line_color, label=label)
 
-        ax2.set_xlabel('Epoch')
-        ax2.set_ylabel('Mean Attention Weight')
-        ax2.set_title('Adaptive Aggregation Dynamics (smoothed)')
+        ax2.set_xlabel('轮次')
+        ax2.set_ylabel('平均注意力权重')
+        ax2.set_title('自适应聚合动态')
         ax2.legend(fontsize=8)
 
     plt.tight_layout()
-    path = f'{output_dir}/fig3_training_dynamics.png'
+    path = f'{output_dir}/fig3b_training_dynamics_alpha.png'
     plt.savefig(path, dpi=200)
     plt.close()
     print(f"Saved: {path}")
@@ -465,7 +498,7 @@ def plot_suppression_heatmap(loss_summary, alpha_summary, bin_config, output_dir
     sns.heatmap(matrix, ax=ax, xticklabels=labels, yticklabels=yticklabels,
                 cmap='YlOrRd', annot=True, fmt=annot_fmt, linewidths=0.5,
                 annot_kws={'size': max(7, 11 - len(active_bins) // 3)},
-                cbar_kws={'label': 'Suppression Index = (1 - α) × drop_rate'})
+                cbar_kws={'label': '抑制指数 = (1 - α) × 丢弃率'})
 
     prev_region = None
     for i, lbl in enumerate(labels_list):
@@ -473,9 +506,9 @@ def plot_suppression_heatmap(loss_summary, alpha_summary, bin_config, output_dir
             ax.axhline(y=i, color='black', linewidth=2)
         prev_region = lbl['region']
 
-    ax.set_xlabel('Epoch Range')
-    ax.set_ylabel('Confidence Bin')
-    ax.set_title('Combined Suppression Heatmap (KG-BERT Confidence)')
+    ax.set_xlabel('轮次范围')
+    ax.set_ylabel('置信度分箱')
+    ax.set_title('综合抑制热力图')
 
     plt.tight_layout()
     path = f'{output_dir}/fig4_suppression_heatmap.png'
@@ -509,11 +542,11 @@ def plot_neighborhood_kl_distribution(neighborhood_raw, output_dir):
                     linewidth=2, fill=True, alpha=0.15)
 
     ax.axvline(x=0, color='black', linestyle='--', linewidth=1.5,
-               alpha=0.7, label='Uniform baseline (KL=0)')
-    ax.set_xlabel('KL Divergence from Uniform')
-    ax.set_ylabel('Density')
-    ax.set_title(f'Neighborhood Attention Deviation from Uniform\n'
-                 f'(Epoch {epoch_label} | Per-node KL divergence, deg >= 2 only)')
+               alpha=0.7, label='均匀基线 (KL=0)')
+    ax.set_xlabel('相对于均匀分布的 KL 散度')
+    ax.set_ylabel('密度')
+    ax.set_title(f'邻域注意力偏离均匀分布\n'
+                 f'（轮次 {epoch_label} | 逐节点 KL 散度，仅度 ≥ 2）')
     ax.legend(fontsize=9)
 
     plt.tight_layout()
@@ -559,11 +592,11 @@ def plot_neighborhood_maxratio_boxplot(neighborhood_raw, output_dir):
         patch.set_alpha(0.6)
 
     ax.axhline(y=1.0, color='gray', linestyle='--', linewidth=1.5,
-               alpha=0.7, label='Uniform baseline (ratio=1)')
+               alpha=0.7, label='均匀基线 (比值=1)')
     ax.set_xticklabels(plot_labels, fontsize=10)
-    ax.set_ylabel('Max Attention Weight / Uniform Weight')
-    ax.set_title(f'Attention Concentration by Node Neighborhood\n'
-                 f'(Epoch {epoch_label} | MaxRatio = max(α) / (1/deg))')
+    ax.set_ylabel('最大注意力权重 / 均匀权重')
+    ax.set_title(f'节点邻域注意力集中度\n'
+                 f'（轮次 {epoch_label} | MaxRatio = max(α) / (1/deg)）')
     ax.legend(fontsize=10)
 
     plt.tight_layout()
@@ -573,12 +606,12 @@ def plot_neighborhood_maxratio_boxplot(neighborhood_raw, output_dir):
     print(f"Saved: {path}")
 
 
-def plot_attention_deviation_dynamics(neighborhood_summary, output_dir):
-    """fig7: Mean KL divergence and CV over training epochs"""
+def plot_attention_deviation_kl(neighborhood_summary, output_dir):
+    """fig7a: Mean KL divergence over training epochs"""
     if not neighborhood_summary:
         return
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    fig, ax1 = plt.subplots(figsize=(8, 6))
 
     for region in NEIGHBORHOOD_REGION_ORDER:
         records = [r for r in neighborhood_summary if r['region'] == region]
@@ -588,7 +621,6 @@ def plot_attention_deviation_dynamics(neighborhood_summary, output_dir):
 
         epochs = [r['epoch'] for r in records]
         kl_means = [r['kl_mean'] for r in records]
-        cv_means = [r['cv_mean'] for r in records]
         n = records[-1]['node_count']
 
         color = NEIGHBORHOOD_COLORS.get(region, '#888888')
@@ -597,23 +629,50 @@ def plot_attention_deviation_dynamics(neighborhood_summary, output_dir):
         ax1.plot(epochs, kl_means, alpha=0.15, linewidth=0.8, color=color)
         ax1.plot(epochs, _smooth(kl_means), linewidth=2, color=color, label=label)
 
+    ax1.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.5)
+    ax1.set_xlabel('轮次')
+    ax1.set_ylabel('平均 KL 散度')
+    ax1.set_title('邻域注意力偏离')
+    ax1.legend(fontsize=9)
+
+    plt.tight_layout()
+    path = f'{output_dir}/fig7a_attention_deviation_kl.png'
+    plt.savefig(path, dpi=200)
+    plt.close()
+    print(f"Saved: {path}")
+
+
+def plot_attention_deviation_cv(neighborhood_summary, output_dir):
+    """fig7b: CV over training epochs"""
+    if not neighborhood_summary:
+        return
+
+    fig, ax2 = plt.subplots(figsize=(8, 6))
+
+    for region in NEIGHBORHOOD_REGION_ORDER:
+        records = [r for r in neighborhood_summary if r['region'] == region]
+        if not records:
+            continue
+        records.sort(key=lambda x: x['epoch'])
+
+        epochs = [r['epoch'] for r in records]
+        cv_means = [r['cv_mean'] for r in records]
+        n = records[-1]['node_count']
+
+        color = NEIGHBORHOOD_COLORS.get(region, '#888888')
+        label = f"{region} (n~{n})"
+
         ax2.plot(epochs, cv_means, alpha=0.15, linewidth=0.8, color=color)
         ax2.plot(epochs, _smooth(cv_means), linewidth=2, color=color, label=label)
 
-    ax1.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.5)
-    ax1.set_xlabel('Epoch')
-    ax1.set_ylabel('Mean KL Divergence')
-    ax1.set_title('Neighborhood Attention Deviation (KL)')
-    ax1.legend(fontsize=9)
-
     ax2.axhline(y=0, color='black', linestyle='--', linewidth=1, alpha=0.5)
-    ax2.set_xlabel('Epoch')
-    ax2.set_ylabel('Mean CV of Attention Weights')
-    ax2.set_title('Neighborhood Attention Deviation (CV)')
+    ax2.set_xlabel('轮次')
+    ax2.set_ylabel('注意力权重平均变异系数')
+    ax2.set_title('邻域注意力偏离')
     ax2.legend(fontsize=9)
 
     plt.tight_layout()
-    path = f'{output_dir}/fig7_attention_deviation_dynamics.png'
+    path = f'{output_dir}/fig7b_attention_deviation_cv.png'
     plt.savefig(path, dpi=200)
     plt.close()
     print(f"Saved: {path}")
@@ -632,11 +691,13 @@ def main():
     plot_confidence_histogram(bin_config, loss_summary, output_dir)
     plot_drop_rate_vs_confidence(loss_summary, bin_config, output_dir)
     plot_alpha_distribution(alpha_summary, alpha_raw, bin_config, loss_summary, output_dir)
-    plot_training_dynamics(loss_summary, alpha_summary, bin_config, output_dir)
+    plot_training_dynamics_loss(loss_summary, bin_config, output_dir)
+    plot_training_dynamics_alpha(alpha_summary, bin_config, output_dir)
     plot_suppression_heatmap(loss_summary, alpha_summary, bin_config, output_dir)
     plot_neighborhood_kl_distribution(neighborhood_raw, output_dir)
     plot_neighborhood_maxratio_boxplot(neighborhood_raw, output_dir)
-    plot_attention_deviation_dynamics(neighborhood_summary, output_dir)
+    plot_attention_deviation_kl(neighborhood_summary, output_dir)
+    plot_attention_deviation_cv(neighborhood_summary, output_dir)
 
 if __name__ == '__main__':
     main()
