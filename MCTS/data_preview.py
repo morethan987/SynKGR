@@ -60,6 +60,12 @@ def analyze_auxiliary_triples_overlap(
     valid_path,
     train_path=None,
 ):
+    """
+    分析辅助三元组与已知数据集的重叠情况
+
+    auxiliary_json_path: KG-BERT 打分输出的 JSON 文件路径
+        格式: {"head\\trel\\ttail": confidence, ...}
+    """
     aux_triples = load_auxiliary_triples(auxiliary_json_path)
     test_triples = load_triples(test_path)
     valid_triples = load_triples(valid_path)
@@ -165,7 +171,7 @@ if __name__ == "__main__":
     # relation_cnt_distribution("MCTS/output/fb15k-237n/processed_data.pth")
 
     analyze_auxiliary_triples_overlap(
-        auxiliary_json_path="MCTS/output/codex-s-kge/20260424_223000/auxiliary_triples_confidence.json",
+        auxiliary_json_path="MCTS/output/codex-s-kge/20260424_223000/auxiliary_triples_confidence_kgbert.json",
         test_path="data/CoDEx-S/test.txt",
         valid_path="data/CoDEx-S/valid.txt",
         train_path="data/CoDEx-S/train.txt",

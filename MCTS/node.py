@@ -108,15 +108,14 @@ class SearchNode(ABC):
                 return True
         return len(self.candidate_entities) <= self.leaf_threshold
 
-    def evaluate_candidates(self, seen:Set) -> Tuple[List[Tuple[str, str, str]], int, dict]:
+    def evaluate_candidates(self, seen:Set) -> Tuple[List[Tuple[str, str, str]], int]:
         """
         评估候选实体，返回正确的三元组
 
         Returns:
-            (正确的三元组列表, 使用的分类器调用次数, 三元组置信度映射)
+            (正确的三元组列表, 使用的分类器调用次数)
         """
         correct_triplets = []
-        triplet_confidences = {}
         budget_used = 0
 
         # 构造所有需要评估的三元组
@@ -152,11 +151,10 @@ class SearchNode(ABC):
             ]
             results = self.triplet_discriminator.judge_batch(discriminator_inputs)
 
-        # 收集正确的三元组及其置信度
+        # 收集正确的三元组
         for i, (triplet, result) in enumerate(zip(triplets_to_evaluate, results)):
             if result["is_correct"]:
                 correct_triplets.append(triplet)
-                triplet_confidences[triplet] = result.get("confidence", 1.0)
 
         # 更新预算使用量
         budget_used = len(triplets_to_evaluate)
@@ -166,7 +164,7 @@ class SearchNode(ABC):
             f"found {len(correct_triplets)} correct triplets"
         )
 
-        return correct_triplets, budget_used, triplet_confidences
+        return correct_triplets, budget_used
 
     def _make_child_context(self) -> Context:
         return Context(

@@ -155,7 +155,7 @@ class KGEDiscriminator(BaseDiscriminator):
             triples_list: 每个元素包含 "embedding_ids": [head_id, rel_id, tail_id]
 
         Returns:
-            列表，每个元素包含 "triple_str", "is_correct", "confidence"
+            列表，每个元素包含 "triple_str" 和 "is_correct"
         """
         results = []
         device = self.openke.device
@@ -189,18 +189,10 @@ class KGEDiscriminator(BaseDiscriminator):
                     )
 
                     raw_score = score.item()
-                    rel_min = self.relation_score_min.get(rel_id)
-                    rel_max = self.relation_score_max.get(rel_id)
-                    if rel_min is not None and rel_max is not None and rel_max > rel_min:
-                        confidence = max(0.0, min(1.0,
-                            (raw_score - rel_min) / (rel_max - rel_min)))
-                    else:
-                        confidence = 1.0 if raw_score >= threshold else 0.0
 
                     results.append({
                         "triple_str": batch[j].get("input", ""),
                         "is_correct": raw_score >= threshold,
-                        "confidence": confidence,
                     })
 
         return results

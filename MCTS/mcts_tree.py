@@ -29,10 +29,9 @@ class MCTS:
         self.Q = defaultdict(float)  # 节点累计奖励
         self.N = defaultdict(int)    # 节点访问次数
         self.explored = set()        # 已探索节点集合
-        self.seen = set()           # 本次迭代中已见过的三元组集合
-        self.all_confidences = {}    # {(h,r,t): confidence} 缓存
+        self.seen = set()
 
-    def do_iteration(self, root_node: SearchNode) -> Tuple[List[Tuple[str, str, str]], int, dict]:
+    def do_iteration(self, root_node: SearchNode) -> Tuple[List[Tuple[str, str, str]], int]:
         """
         执行一次完整的MCTS迭代
 
@@ -40,7 +39,7 @@ class MCTS:
             root_node: 搜索根节点
 
         Returns:
-            (发现的正确三元组列表, 使用的分类器调用次数, 本次迭代的置信度映射)
+            (发现的正确三元组列表, 使用的分类器调用次数)
         """
         rank_logger(self.logger, self.rank)("Starting MCTS iteration")
 
@@ -55,10 +54,7 @@ class MCTS:
         self._expand(leaf)
 
         # Step 3: Rollout - 在叶子节点或新扩展的节点上进行评估
-        rollout_results, total_budget_used, iter_confidences = self._rollout(leaf)
-
-        # 缓存置信度
-        self.all_confidences.update(iter_confidences)
+        rollout_results, total_budget_used = self._rollout(leaf)
 
         # Step 4: Backpropagation
         reward = self._calculate_reward(rollout_results, total_budget_used)
@@ -68,7 +64,7 @@ class MCTS:
         if self.rollout_policy and self._rollout_path_taken is not None:
             self.rollout_policy.update(self._rollout_path_taken, reward)
 
-        return rollout_results, total_budget_used, iter_confidences
+        return rollout_results, total_budget_used
 
     def _select(self, node: SearchNode) -> List[SearchNode]:
         """
@@ -158,12 +154,12 @@ class MCTS:
         node.expand()
         self.explored.add(node)
 
-    def _rollout(self, node: SearchNode) -> Tuple[List[Tuple[str, str, str]], int, dict]:
+    def _rollout(self, node: SearchNode) -> Tuple[List[Tuple[str, str, str]], int]:
         """
         Rollout阶段：使用在线学习策略（或随机策略）来评估节点质量
 
         Returns:
-            (发现的正确三元组列表, 使用的分类器调用次数, 三元组置信度映射)
+            (发现的正确三元组列表, 使用的分类器调用次数)
         """
         current_node = node
         rollout_path = []  # 记录(状态节点, 所选动作类)的决策路径
@@ -188,12 +184,12 @@ class MCTS:
             current_node = chosen_action_class(child_context)
 
         # 到达终端节点，进行最终评估
-        results, budget_used, confidences = current_node.evaluate_candidates(self.seen)
+        results, budget_used = current_node.evaluate_candidates(self.seen)
 
         # 保存 rollout 路径供外部使用
         self._rollout_path_taken = rollout_path
 
-        return results, budget_used, confidences
+        return results, budget_used
 
     def _calculate_reward(self, rollout_results: List[Tuple[str, str, str]], total_budget_used: int) -> float:
         """

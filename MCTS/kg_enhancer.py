@@ -118,8 +118,6 @@ class KGEnhancer:
 
         self.all_entities = set(self.data_loader.entity2name.keys())
 
-        self.all_confidences = {}  # {(h,r,t): confidence} 全局累积
-
         self.logger.info("KGEnhancer initialized successfully")
 
     def _create_discriminator(
@@ -264,12 +262,11 @@ class KGEnhancer:
                              f"budget used: {budget_used}/{self.budget_per_entity}")
 
             # 执行一次MCTS迭代
-            triplets_found, budget_increment, iter_confidences = self.mcts.do_iteration(root_node)
+            triplets_found, budget_increment = self.mcts.do_iteration(root_node)
 
             # 更新统计信息
             discovered_triplets.extend(triplets_found)
             budget_used += budget_increment
-            self.all_confidences.update(iter_confidences)
 
             rank_logger(self.logger, self.rank)(f"Iteration {iteration + 1} found {len(triplets_found)} triplets, "
                              f"used {budget_increment} budget")

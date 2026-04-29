@@ -181,7 +181,6 @@ class KGBERTDiscriminator(BaseDiscriminator):
                     results.append({
                         "triple_str": batch_triple_strs[j],
                         "is_correct": confidence >= 0.7,
-                        "confidence": confidence,
                     })
 
         return results

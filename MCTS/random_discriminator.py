@@ -22,7 +22,6 @@ class RandomDiscriminator(BaseDiscriminator):
             {
                 "triple_str": item.get("input", ""),
                 "is_correct": random.random() < self.positive_rate,
-                "confidence": self.positive_rate,
             }
             for item in triples_list
         ]
