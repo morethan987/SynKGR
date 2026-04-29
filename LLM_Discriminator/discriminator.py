@@ -13,8 +13,8 @@ class TriplesDiscriminator(BaseDiscriminator):
         llm_path: str,
         lora_path: str,
         embedding_path: str,
-        device: str = None,
-        dtype: str = "bf16",
+        device: str = "",
+        dtype: str = "fp16",
         batch_size: int = 8,
     ):
         """
@@ -81,8 +81,8 @@ class TriplesDiscriminator(BaseDiscriminator):
 
     def judge_batch(self, triples_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Judges a list of triples in batches under the simplified assumption that
-        each triple corresponds to exactly 3 embedding IDs.
+        Judges a list of triples in batches using model.generate(),
+        aligned with test_finetuned_llm.py.
 
         Args:
             triples_list (List[Dict[str, Any]]): A list where each item is a
@@ -97,38 +97,50 @@ class TriplesDiscriminator(BaseDiscriminator):
                 batch_data = triples_list[i:i + self.batch_size]
 
                 prompts = [
-                    ALPACA_PROMPT.format(input=item["input"], output="") for item in batch_data
+                    ALPACA_PROMPT.format(input=item["input"], output="")
+                    for item in batch_data
                 ]
-                embedding_ids = torch.LongTensor([item["embedding_ids"] for item in batch_data]).to(self.device)
 
                 inputs = self.tokenizer(
-                    prompts, return_tensors="pt", padding=True, truncation=True, max_length=512
+                    prompts, return_tensors="pt", padding=True
                 )
                 input_ids = inputs.input_ids.to(self.device)
+                attention_mask = inputs.attention_mask.to(self.device)
 
                 token_embeds = self.model.model.model.embed_tokens(input_ids).to(self.torch_dtype)
+
+                embedding_ids = torch.LongTensor(
+                    [item["embedding_ids"] for item in batch_data]
+                ).to(self.device)
                 prefix_embeds = self.kg_embeddings(embedding_ids).to(self.torch_dtype)
+
                 input_embeds = torch.cat((prefix_embeds, token_embeds), dim=1)
 
-                true_token_id = self.tokenizer.encode("True", add_special_tokens=False)[0]
-                false_token_id = self.tokenizer.encode("False", add_special_tokens=False)[0]
-
-                outputs = self.model(
-                    inputs_embeds=input_embeds,
-                    output_hidden_states=False,
+                prefix_len = prefix_embeds.shape[1]
+                prefix_attention = torch.ones(
+                    attention_mask.shape[0], prefix_len,
+                    dtype=attention_mask.dtype, device=self.device
                 )
-                last_logits = outputs.logits[:, -1, :]
-                true_logit = last_logits[:, true_token_id]
-                false_logit = last_logits[:, false_token_id]
-                probs = torch.softmax(torch.stack([true_logit, false_logit], dim=-1), dim=-1)
-                confidences = probs[:, 0]
+                full_attention_mask = torch.cat([prefix_attention, attention_mask], dim=1)
+
+                generate_ids = self.model.generate(
+                    inputs_embeds=input_embeds,
+                    attention_mask=full_attention_mask,
+                    max_new_tokens=16,
+                )
+
+                contexts = self.tokenizer.batch_decode(
+                    input_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+                )
+                responses = self.tokenizer.batch_decode(
+                    generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+                )
 
                 for j in range(len(batch_data)):
-                    confidence = confidences[j].item()
+                    response = responses[j].replace(contexts[j], "").strip()
                     results.append({
                         "triple_str": batch_data[j]["input"],
-                        "is_correct": confidence >= 0.7,
-                        "confidence": confidence,
+                        "is_correct": "True" in response,
                     })
 
         return results

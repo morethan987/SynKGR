@@ -47,7 +47,7 @@ def main(args):
     test_data_path = args.test_data
     embedding_path = "{}/embeddings.pth".format(lora_weights)
     test_dataset = load_test_dataset(test_data_path)
-    kg_embeddings = torch.load(embedding_path).to(device)
+    kg_embeddings = torch.load(embedding_path, map_location=device)
     tokenizer = AutoTokenizer.from_pretrained(base_path, local_files_only=True)
     model = AutoModelForCausalLM.from_pretrained(
         base_path,
