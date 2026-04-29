@@ -13,7 +13,7 @@ LOG_FILE="$LOG_DIR/test_codex_${TIME_STAMP}.log"
 # ==================== GPU 设置 ====================
 export CUDA_VISIBLE_DEVICES=0,1
 export MASTER_ADDR=127.0.0.1
-export MASTER_PORT=29503
+export MASTER_PORT=39503
 NPROC=$(( $(echo "$CUDA_VISIBLE_DEVICES" | tr -cd ',' | wc -c) + 1 ))
 
 # ==================== 环境变量 ====================
@@ -41,7 +41,7 @@ nohup torchrun \
     --nproc_per_node=$NPROC \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
-    LLM_Discriminator/test_finetuned_llm.py \
+    LLM_Discriminator/test_with_discriminator.py \
     --base_model $MODEL_PATH \
     --test_data $DATA_PATH \
     --lora_weights $LORA_PATH \

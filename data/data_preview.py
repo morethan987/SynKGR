@@ -117,7 +117,7 @@ def load_data(file):
                 triples.add(triple)
     return triples
 
-def get_degree(data_file: str, entity_id: str, aux_file: str = None):
+def get_degree(data_file: str, entity_id: str, aux_file: str = ""):
     entt2deg = ddict(int)
     relative_tiples = set()
     with open(data_file, 'r') as f:
@@ -245,12 +245,12 @@ if __name__ == "__main__":
     # file4 = "data/FB15k-237N/auxiliary_triples_old.txt"
     # fb_merged_file = "data/FB15k-237N/merged_triples.txt"
 
-    # file5 = "data/CoDEx-S/test.txt"
+    file5 = "data/CoDEx-S/test.txt"
     # file6 = "data/CoDEx-S/valid.txt"
-    # file7 = "data/CoDEx-S/auxiliary_triples.txt"
+    file7 = "MCTS/output/codex-s-llm/20260429_105738/discovered_triplets.txt"
     # file8 = "data/CoDEx-S/auxiliary_triples_old.txt"
     # codex_merged_file = "data/CoDEx-S/merged_auxiliary_triples.txt"
-    # kg_similarity(file5, file7)
+    kg_similarity(file5, file7)
 
     # head = "/m/0m0bj"
     # tail = "/m/01tzfz"
@@ -260,5 +260,5 @@ if __name__ == "__main__":
     # for triple in relative_tiples:
     #     print(f"{entity2name.get(triple[0],'N/A')} -- {triple[1]} --> {entity2name.get(triple[2],'N/A')}")
 
-    counts = get_entity_degree_distribution('FB15k-237N')
-    print("各区间实体数量:", counts)
+    # counts = get_entity_degree_distribution('FB15k-237N')
+    # print("各区间实体数量:", counts)

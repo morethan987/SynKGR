@@ -180,7 +180,7 @@ class KGBERTDiscriminator(BaseDiscriminator):
                     confidence = probs[j, 1].item()
                     results.append({
                         "triple_str": batch_triple_strs[j],
-                        "is_correct": confidence >= 0.5,
+                        "is_correct": confidence >= 0.7,
                         "confidence": confidence,
                     })
 

@@ -67,7 +67,7 @@ PROCESSED_DATA="MCTS/output/processed_data_${DATASET,,}.pth"
 LOG_DIR='MCTS/logs'
 LOG_FILE="$LOG_DIR/${DATASET,,}_${DISCRIMINATOR}_${TIME_STAMP}.log"
 
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=0,1
 export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=29503
 export TOKENIZERS_PARALLELISM=false
@@ -174,7 +174,7 @@ nohup torchrun \
     --discriminator_folder "$DISCRIMINATOR_FOLDER" \
     --root_dir "$PWD" \
     --dtype fp16 \
-    --exploration_weight 1.0 \
+    --exploration_weight 1.414 \
     --leaf_threshold 32 \
     --mcts_iterations 10 \
     --budget_per_entity 200 \

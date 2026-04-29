@@ -127,7 +127,7 @@ class TriplesDiscriminator(BaseDiscriminator):
                     confidence = confidences[j].item()
                     results.append({
                         "triple_str": batch_data[j]["input"],
-                        "is_correct": confidence >= 0.5,
+                        "is_correct": confidence >= 0.7,
                         "confidence": confidence,
                     })
 
