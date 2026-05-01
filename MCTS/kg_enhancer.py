@@ -57,9 +57,9 @@ class KGEnhancer:
         self.logger = setup_logger(self.__class__.__name__)
         self.rank = rank
         self.output_folder = output_folder
+        self.local_discovered_triplets = set()
         self.target_depth = target_depth
         self.valid_path = valid_path
-        self.local_discovered_triplets = set()
 
         # 配置参数
         self.budget_per_entity = budget_per_entity
@@ -175,21 +175,12 @@ class KGEnhancer:
             return discriminator
         elif discriminator_type == "kge":
             from kge_discriminator import KGEDiscriminator
-            discriminator = KGEDiscriminator(
+            return KGEDiscriminator(
                 model_path=kge_discriminator_path,
                 model_name="RotatE",
                 device=device,
                 batch_size=batch_size,
             )
-            valid_ids = self._load_valid_triple_ids()
-            if valid_ids:
-                self.logger.info(
-                    f"Calibrating KGE discriminator with {len(valid_ids)} validation triples")
-                discriminator.calibrate(valid_ids)
-            else:
-                self.logger.warning(
-                    "No validation triples found, using default threshold for KGE discriminator")
-            return discriminator
         elif discriminator_type == "random":
             from random_discriminator import RandomDiscriminator
             return RandomDiscriminator(positive_rate=0.5)
@@ -200,7 +191,7 @@ class KGEnhancer:
             )
 
     def _load_valid_triple_ids(self):
-        """加载验证集三元组并转换为 embedding ID 格式，用于 KGE 判别器校准"""
+        """加载验证集三元组并转换为 embedding ID 格式，用于 LLM 判别器校准"""
         valid_path = self.valid_path
         if valid_path is None or not os.path.isfile(valid_path):
             return []
