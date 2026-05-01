@@ -11,7 +11,7 @@ TIME_STAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="$LOG_DIR/test_codex_${TIME_STAMP}.log"
 
 # ==================== GPU 设置 ====================
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=1
 export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=39503
 NPROC=$(( $(echo "$CUDA_VISIBLE_DEVICES" | tr -cd ',' | wc -c) + 1 ))

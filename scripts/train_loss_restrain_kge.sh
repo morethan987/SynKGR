@@ -6,7 +6,7 @@
 #   bash scripts/train_loss_restrain_kge.sh FB15k-237N
 #
 
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=1
 
 # ==================== 参数解析 ====================
 DATASET="${1:-CoDEx-S}"
@@ -26,8 +26,8 @@ case "$DATASET" in
     CoDEx-S)
         NAME='codex_train'
         OUTPUT_BASE='loss_restraint_KGE_model/output/codex-s'
-        AUX_TRIPLES="MCTS/output/codex-s-llm/20260429_105738/discovered_triplets.txt"
-        AUX_CONFIDENCE="MCTS/output/codex-s-llm/20260429_105738/auxiliary_triples_confidence.json"
+        AUX_TRIPLES="MCTS/output/codex-s-llm/20260501_033054/discovered_triplets.txt"
+        AUX_CONFIDENCE="MCTS/output/codex-s-llm/20260501_033054/auxiliary_triples_confidence_kgbert.json"
         ;;
     FB15k-237N)
         NAME='fb15k_train'

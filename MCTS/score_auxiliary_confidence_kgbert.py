@@ -7,10 +7,10 @@
 
 用法:
 python MCTS/score_auxiliary_confidence_kgbert.py \
-    --triplets MCTS/output/codex-s-llm/20260428_110614/discovered_triplets.txt \
+    --triplets MCTS/output/codex-s-llm/20260501_033054/discovered_triplets.txt \
     --kgbert_model_dir kg-bert/output/triple_classifier_CoDEx-S \
     --kgbert_data_dir kg-bert/data/CoDEx-S \
-    --output MCTS/output/codex-s-llm/20260428_110614/auxiliary_triples_confidence_kgbert.json
+    --output MCTS/output/codex-s-llm/20260501_033054/auxiliary_triples_confidence_kgbert.json
 """
 
 import argparse

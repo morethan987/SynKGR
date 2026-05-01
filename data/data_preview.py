@@ -247,7 +247,7 @@ if __name__ == "__main__":
 
     file5 = "data/CoDEx-S/test.txt"
     # file6 = "data/CoDEx-S/valid.txt"
-    file7 = "MCTS/output/codex-s-kgbert/20260429_181407/discovered_triplets.txt"
+    file7 = "MCTS/output/codex-s-kge/20260501_114340/discovered_triplets.txt"
     # file8 = "data/CoDEx-S/auxiliary_triples_old.txt"
     # codex_merged_file = "data/CoDEx-S/merged_auxiliary_triples.txt"
     kg_similarity(file5, file7)
