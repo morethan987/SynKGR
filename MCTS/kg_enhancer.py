@@ -39,6 +39,7 @@ class KGEnhancer:
                  kgbert_data_dir: str = None,
                  kge_discriminator_path: str = None,
                  valid_path: str = None,
+                 target_depth: int = 4,
     ):
         """
         初始化知识图谱增强器
@@ -56,6 +57,7 @@ class KGEnhancer:
         self.logger = setup_logger(self.__class__.__name__)
         self.rank = rank
         self.output_folder = output_folder
+        self.target_depth = target_depth
         self.valid_path = valid_path
         self.local_discovered_triplets = set()
 
@@ -136,7 +138,7 @@ class KGEnhancer:
         """根据类型创建判别器实例"""
         if discriminator_type == "llm":
             from LLM_Discriminator.discriminator import TriplesDiscriminator
-            return TriplesDiscriminator(
+            discriminator = TriplesDiscriminator(
                 llm_path=llm_path,
                 lora_path=lora_path,
                 embedding_path=embedding_path,
@@ -144,6 +146,20 @@ class KGEnhancer:
                 dtype=dtype,
                 batch_size=batch_size
             )
+            calibration_data = self._prepare_llm_calibration_data()
+            if calibration_data:
+                import random as _random
+                max_calibration = 2000
+                if len(calibration_data) > max_calibration:
+                    _random.shuffle(calibration_data)
+                    calibration_data = calibration_data[:max_calibration]
+                self.logger.info(
+                    f"Calibrating LLM discriminator with {len(calibration_data)} samples")
+                discriminator.calibrate(calibration_data)
+            else:
+                self.logger.warning(
+                    "No calibration data for LLM discriminator, using default threshold")
+            return discriminator
         elif discriminator_type == "kgbert":
             from kgbert_discriminator import KGBERTDiscriminator
             discriminator = KGBERTDiscriminator(
@@ -205,6 +221,69 @@ class KGEnhancer:
 
         return valid_ids
 
+    def _prepare_llm_calibration_data(self, num_neg_per_positive: int = 10):
+        """
+        准备 LLM 判别器校准数据（正样本 + 随机负样本）。
+        使用验证集三元组作为正样本，随机替换尾实体生成负样本。
+        """
+        import random
+
+        valid_path = self.valid_path
+        if valid_path is None or not os.path.isfile(valid_path):
+            return []
+
+        entity2id = self.data_loader.entity2id
+        relation2id = self.data_loader.relation2id
+        entity2name = self.data_loader.entity2name
+        all_entity_ids = list(entity2id.values())
+
+        calibration_samples = []
+
+        with open(valid_path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split("\t")
+                if len(parts) != 3:
+                    continue
+                h_str, r_str, t_str = parts
+                h_id = entity2id.get(h_str)
+                r_id = relation2id.get(r_str)
+                t_id = entity2id.get(t_str)
+                if h_id is None or r_id is None or t_id is None:
+                    continue
+
+                input_text = "The input triple: \n( {head}, {rel}, {tail} )\n".format(
+                    head=entity2name.get(h_str, h_str).replace('_', ' '),
+                    rel=r_str.replace('/', ' '),
+                    tail=entity2name.get(t_str, t_str).replace('_', ' '),
+                )
+                calibration_samples.append({
+                    "input": input_text,
+                    "embedding_ids": [h_id, r_id, t_id],
+                    "label": 1,
+                })
+
+                for _ in range(num_neg_per_positive):
+                    neg_t_id = random.choice(all_entity_ids)
+                    if neg_t_id == t_id:
+                        continue
+                    neg_t_str = self.data_loader.id2entity.get(neg_t_id, "")
+                    if not neg_t_str:
+                        continue
+                    neg_input_text = "The input triple: \n( {head}, {rel}, {tail} )\n".format(
+                        head=entity2name.get(h_str, h_str).replace('_', ' '),
+                        rel=r_str.replace('/', ' '),
+                        tail=entity2name.get(neg_t_str, neg_t_str).replace('_', ' '),
+                    )
+                    calibration_samples.append({
+                        "input": neg_input_text,
+                        "embedding_ids": [h_id, r_id, neg_t_id],
+                        "label": 0,
+                    })
+
+        self.logger.info(
+            f"Prepared {len(calibration_samples)} calibration samples for LLM discriminator")
+        return calibration_samples
+
     def enhance_entity_relation(self, sparse_entity: str, position: str, relation: str) -> Set[Tuple[str, str, str]]:
         """
         为指定的稀疏实体-位置-关系组合搜索正确的三元组
@@ -242,7 +321,7 @@ class KGEnhancer:
         )
 
         # 创建搜索根节点
-        root_node = SearchRootNode(context=context)
+        root_node = SearchRootNode(context=context, target_depth=self.target_depth)
 
         # 重置MCTS状态
         self.mcts.reset()

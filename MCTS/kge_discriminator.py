@@ -27,7 +27,7 @@ class KGEDiscriminator(BaseDiscriminator):
         model_path: str,
         model_name: str = "RotatE",
         threshold: float = 0.0,
-        device: str = None,
+        device: str = "",
         batch_size: int = 512,
     ):
         """
