@@ -22,14 +22,12 @@ class MCTS:
         self.logger = setup_logger(self.__class__.__name__)
         self.reset()
         self.rank = rank
-        self.seen = set()
 
     def reset(self):
         """重置MCTS状态"""
         self.Q = defaultdict(float)  # 节点累计奖励
         self.N = defaultdict(int)    # 节点访问次数
         self.explored = set()        # 已探索节点集合
-        self.seen = set()
 
     def do_iteration(self, root_node: SearchNode) -> Tuple[List[Tuple[str, str, str]], int]:
         """
@@ -184,7 +182,7 @@ class MCTS:
             current_node = chosen_action_class(child_context)
 
         # 到达终端节点，进行最终评估
-        results, budget_used = current_node.evaluate_candidates(self.seen)
+        results, budget_used = current_node.evaluate_candidates()
 
         # 保存 rollout 路径供外部使用
         self._rollout_path_taken = rollout_path
