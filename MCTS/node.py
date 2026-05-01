@@ -166,6 +166,20 @@ class SearchNode(ABC):
 
         return correct_triplets, budget_used
 
+    def _get_effective_top_p(self, base_top_p: float) -> float:
+        """
+        Calculate adaptive top_p using target-depth decay model.
+
+        decay_ratio = (leaf_threshold / N_root) ^ (1 / target_depth)
+        effective_top_p = min(1.0, decay_ratio * base_top_p / ref_top_p)
+        """
+        root = self._get_root()
+        decay_ratio = getattr(root, 'decay_ratio', None)
+        if decay_ratio is None:
+            return base_top_p
+        ref_top_p = root.BASE_TOP_P
+        return min(1.0, decay_ratio * base_top_p / ref_top_p)
+
     def _make_child_context(self) -> Context:
         return Context(
             rank=self.rank,
@@ -214,12 +228,26 @@ class SearchNode(ABC):
 class SearchRootNode(SearchNode):
     """搜索根节点"""
 
-    def __init__(self, context: Context):
+    BASE_TOP_P = 0.3
+
+    def __init__(self, context: Context, target_depth: int = 4):
         self._kge_rank_map = None
         self._graph_rank_map = None
         self._llm_rank_map = None
         super().__init__(context)
         self.candidate_entities = self._filter()
+
+        # Compute adaptive decay_ratio based on candidate set size
+        n_root = len(self.candidate_entities)
+        if n_root > 0 and target_depth > 0:
+            self.decay_ratio = (self.leaf_threshold / n_root) ** (1.0 / target_depth)
+        else:
+            self.decay_ratio = 1.0
+
+        rank_logger(self.logger, self.rank)(
+            f"Adaptive filtering: decay_ratio={self.decay_ratio:.4f} "
+            f"(n_root={n_root}, leaf_threshold={self.leaf_threshold}, target_depth={target_depth})"
+        )
 
     def _filter(self) -> Set[str]:
         """根节点不进行过滤，直接返回初始候选实体"""
@@ -235,6 +263,7 @@ class KGENode(SearchNode):
 
     def _filter(self, top_p: float = 0.3) -> Set[str]:
         """基于KGE模型的打分结果进行过滤，保留得分前top_p比例的实体"""
+        effective_top_p = self._get_effective_top_p(top_p)
         if not self.unfiltered_entities:
             return set()
 
@@ -279,11 +308,11 @@ class KGENode(SearchNode):
             key=lambda e: root._kge_rank_map.get(e, float('inf'))
         )
 
-        keep_count = max(1, int(len(current_ranked_subset) * top_p))
+        keep_count = max(1, int(len(current_ranked_subset) * effective_top_p))
         candidate_entities = set(current_ranked_subset[:keep_count])
 
         self.logger.debug(
-            f"KGENode filtered {len(candidate_entities)} entities from {len(self.unfiltered_entities)} candidates using cache.")
+            f"KGENode filtered {len(candidate_entities)} entities from {len(self.unfiltered_entities)} candidates (top_p={effective_top_p:.4f}).")
         return candidate_entities
 
 
@@ -296,6 +325,7 @@ class GraphNode(SearchNode):
 
     def _filter(self, top_p: float = 0.5) -> Set[str]:
         """基于图结构的启发式方法进行过滤"""
+        effective_top_p = self._get_effective_top_p(top_p)
         if not self.unfiltered_entities:
             return set()
 
@@ -328,11 +358,11 @@ class GraphNode(SearchNode):
             key=lambda e: root._graph_rank_map.get(e, float('inf'))
         )
 
-        keep_count = max(1, int(len(current_ranked_subset) * top_p))
+        keep_count = max(1, int(len(current_ranked_subset) * effective_top_p))
         candidate_entities = set(current_ranked_subset[:keep_count])
 
         self.logger.debug(
-            f"GraphNode filtered {len(candidate_entities)} entities from {len(self.unfiltered_entities)} candidates using rank map.")
+            f"GraphNode filtered {len(candidate_entities)} entities from {len(self.unfiltered_entities)} candidates (top_p={effective_top_p:.4f}).")
         return candidate_entities
 
     def _extract_keywords_from_description(self, entity_id: str, top_k: int = 5) -> List[str]:
@@ -429,6 +459,7 @@ class LLMNode(SearchNode):
 
     def _filter(self, top_p: float = 0.3) -> Set[str]:
         """基于LLM的语义分析进行过滤"""
+        effective_top_p = self._get_effective_top_p(top_p)
         if not self.unfiltered_entities:
             return set()
 
@@ -456,9 +487,9 @@ class LLMNode(SearchNode):
             key=lambda e: root._llm_rank_map.get(e, float('inf'))
         )
 
-        num_top = max(1, int(len(current_ranked_subset) * top_p))
+        num_top = max(1, int(len(current_ranked_subset) * effective_top_p))
         candidate_entities = set(current_ranked_subset[:num_top])
 
         self.logger.debug(
-            f"LLMNode filtered {len(candidate_entities)} entities from {len(self.unfiltered_entities)} candidates using cache.")
+            f"LLMNode filtered {len(candidate_entities)} entities from {len(self.unfiltered_entities)} candidates (top_p={effective_top_p:.4f}).")
         return candidate_entities

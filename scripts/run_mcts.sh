@@ -45,6 +45,7 @@ case "$DATASET" in
         KGBERT_MODEL_DIR='kg-bert/output/triple_classifier_CoDEx-S'
         KGBERT_DATA_DIR='kg-bert/data/CoDEx-S'
         KGE_DISCRIMINATOR_PATH='LLM_Discriminator/data/CoDeX-S-rotate.pth'
+        TARGET_DEPTH=4
         ;;
     FB15k-237N)
         THRESHOLD='9e-5'
@@ -54,6 +55,7 @@ case "$DATASET" in
         KGBERT_MODEL_DIR='kg-bert/output/triple_classifier_FB15k-237N'
         KGBERT_DATA_DIR='kg-bert/data/FB15k-237N'
         KGE_DISCRIMINATOR_PATH='LLM_Discriminator/data/FB15k-237N-rotate.pth'
+        TARGET_DEPTH=4
         ;;
 esac
 
@@ -67,7 +69,7 @@ PROCESSED_DATA="MCTS/output/processed_data_${DATASET,,}.pth"
 LOG_DIR='MCTS/logs'
 LOG_FILE="$LOG_DIR/${DATASET,,}_${DISCRIMINATOR}_${TIME_STAMP}.log"
 
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0,1,2
 export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=29503
 export TOKENIZERS_PARALLELISM=false
@@ -174,11 +176,12 @@ nohup torchrun \
     --discriminator_folder "$DISCRIMINATOR_FOLDER" \
     --root_dir "$PWD" \
     --dtype fp16 \
-    --exploration_weight 1.414 \
+    --exploration_weight 1.0 \
     --leaf_threshold 32 \
     --mcts_iterations 10 \
     --budget_per_entity 200 \
     --checkpoint_interval 1 \
+    --target_depth $TARGET_DEPTH \
     $DISC_ARGS \
     >> "$LOG_FILE" 2>&1 &
 

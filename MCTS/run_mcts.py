@@ -59,6 +59,7 @@ class Runner:
             kgbert_data_dir=self.args.kgbert_data_dir,
             kge_discriminator_path=self.args.kge_discriminator_path,
             valid_path=f"{self.data_folder}/valid.txt",
+            target_depth=self.args.target_depth,
         )
 
         self.all_discovered_triplets = set()
@@ -302,6 +303,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--kge_discriminator_path", type=str, default=None,
         help="Path to trained KGE model checkpoint for use as discriminator (required when --discriminator_type kge)"
+    )
+    parser.add_argument(
+        "--target_depth", type=int, default=4,
+        help="Target search depth for adaptive filtering (default: 4)"
     )
     args = parser.parse_args()
 
